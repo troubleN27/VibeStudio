@@ -205,9 +205,13 @@ export default function BookingPage() {
       <main className="min-h-dvh bg-ink-950">
         <header className="sticky top-0 z-40 border-b border-ink-800 bg-ink-950/80 backdrop-blur-xl">
           <div className="container-page flex h-14 items-center justify-between sm:h-16">
-            <Link href="/">
+            {tg.isTelegram ? (
               <Logo light />
-            </Link>
+            ) : (
+              <Link href="/">
+                <Logo light />
+              </Link>
+            )}
           </div>
         </header>
 
@@ -273,9 +277,13 @@ export default function BookingPage() {
       {/* Header */}
       <header className="sticky top-0 z-40 border-b border-ink-800 bg-ink-950/80 backdrop-blur-xl">
         <div className="container-page flex h-14 items-center justify-between gap-4 sm:h-16">
-          <Link href="/">
+          {tg.isTelegram ? (
             <Logo light />
-          </Link>
+          ) : (
+            <Link href="/">
+              <Logo light />
+            </Link>
+          )}
           {!tg.isTelegram && (
             <Link
               href="/"
@@ -305,15 +313,15 @@ export default function BookingPage() {
         </div>
 
         {/* Прогресс шагов */}
-        <div className="mt-8 flex max-w-2xl items-center gap-1 overflow-x-auto pb-1">
+        <div className="mt-8 flex max-w-2xl items-center gap-0.5 overflow-x-auto pb-1 sm:gap-1">
           {STEPS.map((s, i) => {
             const done = maxStepReached > i;
             const active = currentStep <= i && !done;
             return (
-              <div key={s} className="flex items-center gap-1">
+              <div key={s} className="flex items-center gap-0.5 sm:gap-1">
                 <div
                   className={[
-                    "flex whitespace-nowrap items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-medium transition-all duration-200",
+                    "flex whitespace-nowrap items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[11px] font-medium transition-all duration-200 sm:gap-2 sm:px-3.5 sm:text-xs",
                     done
                       ? "bg-brand-500/15 text-brand-200"
                       : active
@@ -322,7 +330,7 @@ export default function BookingPage() {
                   ].join(" ")}
                 >
                   <span
-                    className={`flex h-[18px] w-[18px] items-center justify-center rounded-full text-[10px] font-bold ${
+                    className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold sm:h-[18px] sm:w-[18px] sm:text-[10px] ${
                       done
                         ? "bg-brand-600 text-white"
                         : active
@@ -339,7 +347,7 @@ export default function BookingPage() {
                   {s}
                 </div>
                 {i < STEPS.length - 1 && (
-                  <span className="h-px w-4 bg-ink-700 sm:w-6" />
+                  <span className="h-px w-1.5 bg-ink-700 sm:w-6" />
                 )}
               </div>
             );
