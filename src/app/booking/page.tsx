@@ -15,6 +15,12 @@ import ServiceCard, { type Service } from "@/components/booking/ServiceCard";
 import Calendar from "@/components/booking/Calendar";
 import TimeSlotGrid from "@/components/booking/TimeSlotGrid";
 import BookingSummary from "@/components/booking/BookingSummary";
+import { addDaysIsoLocal, formatDateRu, todayIsoLocal } from "@/lib/dates";
+import {
+  ClientRequestError,
+  getErrorMessage,
+  requestJson
+} from "@/lib/client-fetch";
 
 type AvailabilityResponse = {
   date: string;
@@ -30,23 +36,6 @@ type CreatedBooking = {
   endTime: string;
   status: string;
 };
-
-function todayIso(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function addDaysIso(iso: string, days: number): string {
-  const d = new Date(iso);
-  d.setDate(d.getDate() + days);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
 
 export default function BookingPage() {
   const [halls, setHalls] = useState<Hall[]>([]);
@@ -65,8 +54,8 @@ export default function BookingPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<CreatedBooking | null>(null);
 
-  const minDate = useMemo(() => todayIso(), []);
-  const maxDate = useMemo(() => addDaysIso(todayIso(), 90), []);
+  const minDate = useMemo(() => todayIsoLocal(), []);
+  const maxDate = useMemo(() => addDaysIsoLocal(todayIsoLocal(), 90), []);
 
   const currentStep = useMemo(
     () => (selectedHall ? (selectedService ? (selectedDate ? (selectedTime ? 4 : 3) : 2) : 1) : 0),
@@ -78,9 +67,8 @@ export default function BookingPage() {
   useEffect(() => {
     let cancelled = false;
     setLoadingHalls(true);
-    fetch("/api/halls")
-      .then((r) => r.json())
-      .then((data: Hall[]) => {
+    requestJson<Hall[]>("/api/halls")
+      .then((data) => {
         if (!cancelled) setHalls(data);
       })
       .catch(() => {
@@ -104,9 +92,10 @@ export default function BookingPage() {
     let cancelled = false;
     setLoadingServices(true);
     setSelectedService(null);
-    fetch(`/api/services?hallId=${encodeURIComponent(selectedHall.id)}`)
-      .then((r) => r.json())
-      .then((data: Service[]) => {
+    requestJson<Service[]>(
+      `/api/services?hallId=${encodeURIComponent(selectedHall.id)}`
+    )
+      .then((data) => {
         if (!cancelled) setServices(data);
       })
       .catch(() => {
@@ -164,7 +153,7 @@ export default function BookingPage() {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch("/api/bookings", {
+      const booking = await requestJson<CreatedBooking>("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -178,27 +167,17 @@ export default function BookingPage() {
         })
       });
 
-      if (res.status === 409) {
-        setError("Это время уже занято. Пожалуйста, выберите другое.");
-        await loadAvailability();
-        setSelectedTime(null);
-        return;
-      }
-
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => null);
-        setError(
-          errBody?.error?.message ?? "Не удалось создать бронирование"
-        );
-        return;
-      }
-
-      const booking: CreatedBooking = await res.json();
       setSuccess(booking);
       // Обновляем слоты, чтобы отразить новую занятость
       await loadAvailability();
-    } catch {
-      setError("Сетевая ошибка. Попробуйте ещё раз.");
+    } catch (err) {
+      if (err instanceof ClientRequestError && err.status === 409) {
+        setError("Это время уже занято. Пожалуйста, выберите другое.");
+        await loadAvailability();
+        setSelectedTime(null);
+      } else {
+        setError(getErrorMessage(err));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -251,7 +230,7 @@ export default function BookingPage() {
                 <dl className="space-y-2.5 px-5 py-4 text-sm">
                   <DetailRow label="Зал" value={success.hall.name} />
                   <DetailRow label="Услуга" value={success.service.name} />
-                  <DetailRow label="Дата" value={formatIso(success.date)} />
+                  <DetailRow label="Дата" value={formatDateRu(success.date)} />
                   <DetailRow
                     label="Время"
                     value={`${success.startTime} — ${success.endTime}`}
@@ -536,13 +515,4 @@ function DetailRow({ label, value }: { label: string; value: string }) {
       <dd className="text-right font-medium text-white">{value}</dd>
     </div>
   );
-}
-
-function formatIso(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString("ru-RU", {
-    day: "numeric",
-    month: "long",
-    year: "numeric"
-  });
 }

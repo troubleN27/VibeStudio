@@ -1,6 +1,7 @@
 "use client";
 
 import { IconCamera, IconCheck } from "@/components/ui/icons";
+import { initialsOf } from "@/lib/format";
 
 export type Hall = {
   id: string;
@@ -14,11 +15,6 @@ type HallCardProps = {
   selected: boolean;
   onSelect: (hall: Hall) => void;
 };
-
-function initialsOf(name: string) {
-  const chars = name.trim().slice(0, 2).toUpperCase();
-  return chars || "VS";
-}
 
 export default function HallCard({ hall, selected, onSelect }: HallCardProps) {
   return (

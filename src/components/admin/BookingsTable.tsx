@@ -14,7 +14,7 @@ import {
   type BookingSource,
   type BookingStatus
 } from "@/lib/constants";
-import { formatPrice } from "@/lib/format";
+import { formatPrice, initialsOf } from "@/lib/format";
 
 export type BookingRow = {
   id: string;
@@ -36,10 +36,6 @@ type BookingsTableProps = {
   onStatusChange: (id: string, status: BookingStatus) => void;
   updatingId?: string | null;
 };
-
-function initialsOf(name: string) {
-  return name.trim().slice(0, 2).toUpperCase() || "—";
-}
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -177,7 +173,7 @@ export default function BookingsTable({
                   <td>
                     <div className="flex items-center gap-2.5">
                       <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-ink-800 text-[11px] font-semibold text-stone-300">
-                        {initialsOf(b.client.name)}
+                        {initialsOf(b.client.name, "—")}
                       </span>
                       <div>
                         <div className="font-medium text-white">

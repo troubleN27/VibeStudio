@@ -4,6 +4,8 @@ import { useState } from "react";
 import type { Hall } from "./HallCard";
 import type { Service } from "./ServiceCard";
 import { IconShield } from "@/components/ui/icons";
+import { formatPrice } from "@/lib/format";
+import { addMinutesToTime, formatDateRu } from "@/lib/dates";
 
 type BookingSummaryProps = {
   hall: Hall | null;
@@ -15,31 +17,12 @@ type BookingSummaryProps = {
   onSubmit: (data: { clientName: string; clientPhone: string }) => void;
 };
 
-function formatPrice(price: number): string {
-  return new Intl.NumberFormat("ru-RU", {
-    style: "decimal",
-    maximumFractionDigits: 0
-  }).format(price);
-}
-
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString("ru-RU", {
-    day: "numeric",
-    month: "long",
-    year: "numeric"
-  });
-}
-
-function addMinutes(time: string, minutes: number): string {
-  const [h, m] = time.split(":").map(Number);
-  const total = h * 60 + m + minutes;
-  const nh = Math.floor(total / 60) % 24;
-  const nm = total % 60;
-  return `${String(nh).padStart(2, "0")}:${String(nm).padStart(2, "0")}`;
-}
-
 const PHONE_REGEX = /^\+?\d{9,15}$/;
+
+/** То же, что и в src/lib/validation/booking.schema.ts (phoneSchema). */
+function normalizePhone(value: string): string {
+  return value.replace(/[\s\-()]/g, "");
+}
 
 export default function BookingSummary({
   hall,
@@ -55,14 +38,14 @@ export default function BookingSummary({
   const [touched, setTouched] = useState(false);
 
   const endTime =
-    startTime && service ? addMinutes(startTime, service.durationMin) : null;
+    startTime && service ? addMinutesToTime(startTime, service.durationMin) : null;
 
   const nameError =
     touched && clientName.trim().length < 2
       ? "Укажите имя (минимум 2 символа)"
       : null;
   const phoneError =
-    touched && !PHONE_REGEX.test(clientPhone.replace(/\s/g, ""))
+    touched && !PHONE_REGEX.test(normalizePhone(clientPhone))
       ? "Введите корректный номер телефона"
       : null;
 
@@ -71,7 +54,7 @@ export default function BookingSummary({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setTouched(true);
-    const cleanPhone = clientPhone.replace(/\s/g, "");
+    const cleanPhone = normalizePhone(clientPhone);
     if (clientName.trim().length < 2) return;
     if (!PHONE_REGEX.test(cleanPhone)) return;
     if (!ready) return;
@@ -99,7 +82,7 @@ export default function BookingSummary({
           <Row label="Услуга" value={service?.name ?? "—"} empty={!service} />
           <Row
             label="Дата"
-            value={date ? formatDate(date) : "—"}
+            value={date ? formatDateRu(date) : "—"}
             empty={!date}
           />
           <Row

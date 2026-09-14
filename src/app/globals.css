@@ -234,10 +234,10 @@ textarea {
   }
 
   .data-table thead tr {
-    @apply border-b border-stone-200;
+    @apply border-b border-ink-700;
   }
 
   .data-table tbody tr {
-    @apply border-b border-stone-200/70 transition-colors last:border-0 hover:bg-ink-800/50;
+    @apply border-b border-ink-700/60 transition-colors last:border-0 hover:bg-ink-800/50;
   }
 }

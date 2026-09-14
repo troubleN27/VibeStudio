@@ -1,6 +1,7 @@
 "use client";
 
 import { IconCheck, IconClock } from "@/components/ui/icons";
+import { formatDuration, formatPrice } from "@/lib/format";
 
 export type Service = {
   id: string;
@@ -15,21 +16,6 @@ type ServiceCardProps = {
   selected: boolean;
   onSelect: (service: Service) => void;
 };
-
-function formatPrice(price: number): string {
-  return new Intl.NumberFormat("ru-RU", {
-    style: "decimal",
-    maximumFractionDigits: 0
-  }).format(price);
-}
-
-function formatDuration(minutes: number): string {
-  if (minutes < 60) return `${minutes} мин`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  if (rest === 0) return `${hours} ч`;
-  return `${hours} ч ${rest} мин`;
-}
 
 export default function ServiceCard({
   service,

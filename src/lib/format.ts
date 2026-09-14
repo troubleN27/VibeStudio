@@ -41,3 +41,9 @@ export function pluralRu(
 export function escapeMarkdown(text: string): string {
   return text.replace(/([_*`\[])/g, "\\$1");
 }
+
+/** "Анна К." → "АН" (две первые буквы заглавными). */
+export function initialsOf(name: string, fallback = "VS"): string {
+  const chars = name.trim().slice(0, 2).toUpperCase();
+  return chars || fallback;
+}

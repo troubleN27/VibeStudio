@@ -16,7 +16,7 @@ import {
   BOOKING_STATUS_STYLES,
   type BookingStatus
 } from "@/lib/constants";
-import { formatPrice } from "@/lib/format";
+import { formatPrice, initialsOf } from "@/lib/format";
 import { requestJson } from "@/lib/client-fetch";
 
 type ClientBooking = {
@@ -48,10 +48,6 @@ function formatDate(iso: string): string {
     month: "2-digit",
     year: "numeric"
   });
-}
-
-function initialsOf(name: string) {
-  return name.trim().slice(0, 2).toUpperCase() || "—";
 }
 
 export default function AdminClientsPage() {
@@ -225,7 +221,7 @@ export default function AdminClientsPage() {
                         <td>
                           <div className="flex items-center gap-3">
                             <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-[11px] font-semibold text-white">
-                              {initialsOf(c.name)}
+                              {initialsOf(c.name, "—")}
                             </span>
                             <span className="font-medium text-white">
                               {c.name}

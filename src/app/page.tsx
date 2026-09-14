@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import Logo from "@/components/ui/Logo";
+import { initialsOf } from "@/lib/format";
 import {
   IconArrowRight,
   IconBot,
@@ -33,11 +34,6 @@ const NAV_LINKS = [
   { href: "#how", label: "Как бронировать" },
   { href: "#faq", label: "Частые вопросы" }
 ];
-
-function initialsOf(name: string) {
-  const chars = name.trim().slice(0, 2).toUpperCase();
-  return chars || "VS";
-}
 
 /**
  * Лендинг — серверный компонент. Загружаем залы напрямую из БД,
