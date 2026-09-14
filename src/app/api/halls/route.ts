@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createHallSchema } from "@/lib/validation/hall.schema";
+import {
+  parseJson,
+  requireAdmin,
+  validate,
+  withApiHandler
+} from "@/lib/api";
 
 /**
  * GET /api/halls
@@ -10,23 +14,12 @@ import { createHallSchema } from "@/lib/validation/hall.schema";
  * Для админа (?includeInactive=true, требует сессии) — все залы.
  */
 export async function GET(req: NextRequest) {
-  try {
+  return withApiHandler(async () => {
     const { searchParams } = new URL(req.url);
     const includeInactive = searchParams.get("includeInactive") === "true";
 
     if (includeInactive) {
-      const session = await getServerSession(authOptions);
-      if (!session?.user) {
-        return NextResponse.json(
-          {
-            error: {
-              code: "UNAUTHORIZED",
-              message: "Требуется авторизация"
-            }
-          },
-          { status: 401 }
-        );
-      }
+      await requireAdmin();
     }
 
     const halls = await prisma.hall.findMany({
@@ -42,18 +35,7 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json(halls);
-  } catch (err) {
-    console.error("[GET /api/halls]", err);
-    return NextResponse.json(
-      {
-        error: {
-          code: "INTERNAL_ERROR",
-          message: "Внутренняя ошибка сервера"
-        }
-      },
-      { status: 500 }
-    );
-  }
+  });
 }
 
 /**
@@ -61,52 +43,17 @@ export async function GET(req: NextRequest) {
  * Создание зала (только админ).
  */
 export async function POST(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "UNAUTHORIZED",
-            message: "Требуется авторизация"
-          }
-        },
-        { status: 401 }
-      );
-    }
+  return withApiHandler(async () => {
+    await requireAdmin();
 
-    const body = await req.json().catch(() => null);
-    if (!body) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Некорректное тело запроса"
-          }
-        },
-        { status: 400 }
-      );
-    }
-
-    const parsed = createHallSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Некорректные данные",
-            details: parsed.error.flatten()
-          }
-        },
-        { status: 400 }
-      );
-    }
+    const body = await parseJson(req);
+    const data = validate(createHallSchema, body);
 
     const hall = await prisma.hall.create({
       data: {
-        name: parsed.data.name,
-        description: parsed.data.description ?? null,
-        photoUrl: parsed.data.photoUrl ?? null,
+        name: data.name,
+        description: data.description ?? null,
+        photoUrl: data.photoUrl ?? null,
         isActive: true
       },
       select: {
@@ -119,16 +66,5 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json(hall, { status: 201 });
-  } catch (err) {
-    console.error("[POST /api/halls]", err);
-    return NextResponse.json(
-      {
-        error: {
-          code: "INTERNAL_ERROR",
-          message: "Внутренняя ошибка сервера"
-        }
-      },
-      { status: 500 }
-    );
-  }
+  });
 }

@@ -12,6 +12,11 @@ import {
   IconSave,
   IconSparkle
 } from "@/components/ui/icons";
+import { PageHeader } from "@/components/admin/PageHeader";
+import { EmptyState } from "@/components/admin/EmptyState";
+import { formatDuration, formatPrice, pluralRu } from "@/lib/format";
+import { getErrorMessage, requestJson } from "@/lib/client-fetch";
+import { useFetchData } from "@/hooks/useFetchData";
 
 type HallItem = {
   id: string;
@@ -49,24 +54,8 @@ const EMPTY_FORM: FormState = {
 
 type Mode = { kind: "list" } | { kind: "form"; initial: FormState };
 
-function formatPrice(price: number): string {
-  return new Intl.NumberFormat("ru-RU", {
-    style: "decimal",
-    maximumFractionDigits: 0
-  }).format(price);
-}
-
-function formatDuration(minutes: number): string {
-  if (minutes < 60) return `${minutes} мин`;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return m === 0 ? `${h} ч` : `${h} ч ${m} мин`;
-}
-
 export default function AdminServicesPage() {
   const [halls, setHalls] = useState<HallItem[]>([]);
-  const [services, setServices] = useState<ServiceItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<Mode>({ kind: "list" });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,29 +63,27 @@ export default function AdminServicesPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [filterHallId, setFilterHallId] = useState<string>("");
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [hallsRes, servicesRes] = await Promise.all([
-        fetch("/api/halls?includeInactive=true"),
-        fetch("/api/services?includeInactive=true")
-      ]);
-      if (!hallsRes.ok || !servicesRes.ok) throw new Error("failed");
-      const hallsData: HallItem[] = await hallsRes.json();
-      const servicesData: ServiceItem[] = await servicesRes.json();
-      setHalls(hallsData);
-      setServices(servicesData);
-    } catch {
-      setError("Не удалось загрузить данные");
-    } finally {
-      setLoading(false);
-    }
+  const loadAll = useCallback(async () => {
+    const [hallsData, servicesData] = await Promise.all([
+      requestJson<HallItem[]>("/api/halls?includeInactive=true"),
+      requestJson<ServiceItem[]>("/api/services?includeInactive=true")
+    ]);
+    setHalls(hallsData);
+    return servicesData;
   }, []);
 
+  const {
+    data,
+    loading,
+    error: loadError,
+    reload
+  } = useFetchData(loadAll, "Не удалось загрузить данные");
+
+  const services = data ?? [];
+
   useEffect(() => {
-    load();
-  }, [load]);
+    reload();
+  }, [reload]);
 
   const visibleServices = useMemo(() => {
     if (!filterHallId) return services;
@@ -165,11 +152,10 @@ export default function AdminServicesPage() {
 
     try {
       const isEdit = !!values.id;
-      const res = await fetch(
+      await requestJson(
         isEdit ? `/api/services/${values.id}` : "/api/services",
         {
           method: isEdit ? "PATCH" : "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             name: values.name.trim(),
             description: values.description.trim() || undefined,
@@ -180,16 +166,10 @@ export default function AdminServicesPage() {
         }
       );
 
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        setFormError(body?.error?.message ?? "Не удалось сохранить услугу");
-        return;
-      }
-
       setMode({ kind: "list" });
-      await load();
-    } catch {
-      setFormError("Сетевая ошибка");
+      await reload();
+    } catch (err) {
+      setFormError(getErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
@@ -204,38 +184,27 @@ export default function AdminServicesPage() {
       return;
     }
     setDeletingId(service.id);
+    setError(null);
     try {
-      const res = await fetch(`/api/services/${service.id}`, {
-        method: "DELETE"
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        setError(body?.error?.message ?? "Не удалось деактивировать услугу");
-        return;
-      }
-      await load();
-    } catch {
-      setError("Сетевая ошибка");
+      await requestJson(`/api/services/${service.id}`, { method: "DELETE" });
+      await reload();
+    } catch (err) {
+      setError(getErrorMessage(err));
     } finally {
       setDeletingId(null);
     }
   }
 
   async function handleActivate(service: ServiceItem) {
+    setError(null);
     try {
-      const res = await fetch(`/api/services/${service.id}`, {
+      await requestJson(`/api/services/${service.id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isActive: true })
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        setError(body?.error?.message ?? "Не удалось активировать услугу");
-        return;
-      }
-      await load();
-    } catch {
-      setError("Сетевая ошибка");
+      await reload();
+    } catch (err) {
+      setError(getErrorMessage(err));
     }
   }
 
@@ -379,26 +348,22 @@ export default function AdminServicesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-white">
-            Услуги
-          </h1>
-          <p className="mt-1 text-sm text-stone-500">
-            Что клиенты могут забронировать в каждом зале.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={openCreate}
-          className="btn-primary"
-          disabled={halls.length === 0}
-          title={halls.length === 0 ? "Сначала создайте хотя бы один зал" : ""}
-        >
-          <IconPlus width={16} height={16} />
-          Новая услуга
-        </button>
-      </div>
+      <PageHeader
+        title="Услуги"
+        subtitle="Что клиенты могут забронировать в каждом зале."
+        actions={
+          <button
+            type="button"
+            onClick={openCreate}
+            className="btn-primary"
+            disabled={halls.length === 0}
+            title={halls.length === 0 ? "Сначала создайте хотя бы один зал" : ""}
+          >
+            <IconPlus width={16} height={16} />
+            Новая услуга
+          </button>
+        }
+      />
 
       {halls.length > 0 && (
         <div className="card flex max-w-md items-end gap-3 p-4">
@@ -419,12 +384,14 @@ export default function AdminServicesPage() {
           </div>
           <span className="pill mb-0.5 bg-ink-800 text-stone-400">
             {visibleServices.length}{" "}
-            {visibleServices.length === 1 ? "услуга" : visibleServices.length < 5 ? "услуги" : "услуг"}
+            {pluralRu(visibleServices.length, ["услуга", "услуги", "услуг"])}
           </span>
         </div>
       )}
 
-      {error && <div className="alert-error">{error}</div>}
+      {(loadError || error) && (
+        <div className="alert-error">{loadError ?? error}</div>
+      )}
 
       {loading ? (
         <div className="card divide-y divide-ink-800">
@@ -440,26 +407,20 @@ export default function AdminServicesPage() {
           ))}
         </div>
       ) : halls.length === 0 ? (
-        <div className="empty">
-          <p className="text-sm font-medium text-stone-200">
-            Сначала создайте зал в разделе «Залы»
-          </p>
-          <Link href="/admin/halls" className="btn-secondary btn-sm mt-4">
-            Перейти к залам
-          </Link>
-        </div>
+        <EmptyState
+          title="Сначала создайте зал в разделе «Залы»"
+          action={
+            <Link href="/admin/halls" className="btn-secondary btn-sm">
+              Перейти к залам
+            </Link>
+          }
+        />
       ) : visibleServices.length === 0 ? (
-        <div className="empty">
-          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-500/15 text-brand-400">
-            <IconSparkle width={26} height={26} />
-          </span>
-          <p className="mt-4 text-sm font-medium text-stone-200">
-            Услуг пока нет
-          </p>
-          <p className="mt-1 text-xs text-stone-400">
-            Нажмите «Новая услуга», чтобы добавить
-          </p>
-        </div>
+        <EmptyState
+          icon={<IconSparkle width={26} height={26} />}
+          title="Услуг пока нет"
+          subtitle="Нажмите «Новая услуга», чтобы добавить"
+        />
       ) : (
         <div className="card overflow-hidden">
           <div className="overflow-x-auto">

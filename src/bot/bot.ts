@@ -1,5 +1,7 @@
 import { Bot, session } from "grammy";
 import { prisma } from "@/lib/prisma";
+import { formatDateRu, startOfTodayUtc } from "@/lib/dates";
+import { escapeMarkdown, formatPrice } from "@/lib/format";
 import {
   initialSession,
   resetSessionData,
@@ -145,9 +147,7 @@ bot.command("my_bookings", async (ctx) => {
         b.service.name
       )}\n` +
         `🗓 ${formatDateRu(dateStr)} · ${b.startTime} — ${b.endTime}\n` +
-        `💰 ${new Intl.NumberFormat("ru-RU").format(
-          Number(b.totalPrice)
-        )} сум\n`
+        `💰 ${formatPrice(Number(b.totalPrice))} сум\n`
     );
   }
 
@@ -256,31 +256,6 @@ bot.on("message", async (ctx) => {
       "Начать заново — /start."
   );
 });
-
-/* =========================================================================
- * Утилиты
- * ========================================================================= */
-
-function startOfTodayUtc(): Date {
-  const now = new Date();
-  return new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-  );
-}
-
-function formatDateRu(iso: string): string {
-  const d = new Date(`${iso}T00:00:00.000Z`);
-  return d.toLocaleDateString("ru-RU", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC"
-  });
-}
-
-function escapeMarkdown(text: string): string {
-  return text.replace(/([_*`\[])/g, "\\$1");
-}
 
 /* =========================================================================
  * Настройка меню команд (одноразово при импорте модуля)

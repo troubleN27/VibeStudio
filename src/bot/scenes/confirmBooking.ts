@@ -6,6 +6,8 @@ import {
   InvalidSlotError
 } from "@/lib/booking-service";
 import { notifyAdmin, formatBookingNotification } from "@/lib/telegram-notify";
+import { addMinutesToTime, formatDateRu } from "@/lib/dates";
+import { escapeMarkdown, formatPrice } from "@/lib/format";
 import type { BotContext } from "../session";
 import { resetSessionData } from "../session";
 
@@ -49,7 +51,7 @@ export async function showConfirm(ctx: BotContext): Promise<void> {
 
   ctx.session.step = "confirm";
 
-  const endTime = addMinutes(startTime, serviceDurationMin);
+  const endTime = addMinutesToTime(startTime, serviceDurationMin);
 
   const text =
     "🧾 *Проверьте детали брони:*\n\n" +
@@ -236,34 +238,4 @@ export async function handleCancelConfirm(
   }
 
   return true;
-}
-
-/* =========================================================================
- * Утилиты
- * ========================================================================= */
-
-function addMinutes(time: string, minutes: number): string {
-  const [h, m] = time.split(":").map(Number);
-  const total = h * 60 + m + minutes;
-  const nh = Math.floor(total / 60) % 24;
-  const nm = total % 60;
-  return `${String(nh).padStart(2, "0")}:${String(nm).padStart(2, "0")}`;
-}
-
-function formatDateRu(iso: string): string {
-  const d = new Date(`${iso}T00:00:00.000Z`);
-  return d.toLocaleDateString("ru-RU", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC"
-  });
-}
-
-function formatPrice(price: number): string {
-  return new Intl.NumberFormat("ru-RU").format(price);
-}
-
-function escapeMarkdown(text: string): string {
-  return text.replace(/([_*`\[])/g, "\\$1");
 }

@@ -2,10 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { IconCalendarCheck, IconClock, IconFilter, IconRefresh, IconTrending } from "@/components/ui/icons";
-import BookingsTable, {
-  type BookingRow,
+import BookingsTable, { type BookingRow } from "@/components/admin/BookingsTable";
+import { PageHeader } from "@/components/admin/PageHeader";
+import { StatCard } from "@/components/admin/StatCard";
+import {
+  BOOKING_STATUSES,
+  BOOKING_STATUS_LABELS,
+  COMMITTED_BOOKING_STATUSES,
   type BookingStatus
-} from "@/components/admin/BookingsTable";
+} from "@/lib/constants";
+import { addDaysIsoLocal, todayIsoLocal } from "@/lib/dates";
+import { formatPrice } from "@/lib/format";
+import { getErrorMessage, requestJson } from "@/lib/client-fetch";
+import { useFetchData } from "@/hooks/useFetchData";
 
 type HallItem = {
   id: string;
@@ -16,113 +25,78 @@ type FilterStatus = BookingStatus | "";
 
 const STATUS_OPTIONS: { value: FilterStatus; label: string }[] = [
   { value: "", label: "Все статусы" },
-  { value: "PENDING", label: "Ожидает" },
-  { value: "CONFIRMED", label: "Подтверждена" },
-  { value: "COMPLETED", label: "Завершена" },
-  { value: "CANCELLED_BY_CLIENT", label: "Отменена клиентом" },
-  { value: "CANCELLED_BY_ADMIN", label: "Отменена админом" },
-  { value: "NO_SHOW", label: "Не пришёл" }
+  ...BOOKING_STATUSES.map((s) => ({
+    value: s,
+    label: BOOKING_STATUS_LABELS[s]
+  }))
 ];
-
-function todayIso(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function addDaysIso(iso: string, days: number): string {
-  const d = new Date(iso);
-  d.setDate(d.getDate() + days);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
 
 export default function AdminBookingsPage() {
   const [halls, setHalls] = useState<HallItem[]>([]);
-  const [bookings, setBookings] = useState<BookingRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("");
   const [filterHallId, setFilterHallId] = useState<string>("");
-  const [filterFrom, setFilterFrom] = useState<string>(todayIso());
-  const [filterTo, setFilterTo] = useState<string>(addDaysIso(todayIso(), 30));
+  const [filterFrom, setFilterFrom] = useState<string>(() => todayIsoLocal());
+  const [filterTo, setFilterTo] = useState<string>(() =>
+    addDaysIsoLocal(todayIsoLocal(), 30)
+  );
 
   const loadHalls = useCallback(async () => {
-    try {
-      const res = await fetch("/api/halls?includeInactive=true");
-      if (!res.ok) return;
-      const data: HallItem[] = await res.json();
-      setHalls(data);
-    } catch {
-      // не критично
-    }
+    setHalls(await requestJson<HallItem[]>("/api/halls?includeInactive=true"));
   }, []);
 
-  const loadBookings = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams();
-      if (filterStatus) params.set("status", filterStatus);
-      if (filterHallId) params.set("hallId", filterHallId);
-      if (filterFrom) params.set("from", filterFrom);
-      if (filterTo) params.set("to", filterTo);
-
-      const res = await fetch(`/api/bookings?${params.toString()}`);
-      if (!res.ok) throw new Error("failed");
-      const data: BookingRow[] = await res.json();
-      setBookings(data);
-    } catch {
-      setError("Не удалось загрузить бронирования");
-      setBookings([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [filterStatus, filterHallId, filterFrom, filterTo]);
-
   useEffect(() => {
-    loadHalls();
+    loadHalls().catch(() => {
+      // список залов не критичен для работы страницы
+    });
   }, [loadHalls]);
 
+  const loadBookings = useCallback(async () => {
+    const params = new URLSearchParams();
+    if (filterStatus) params.set("status", filterStatus);
+    if (filterHallId) params.set("hallId", filterHallId);
+    if (filterFrom) params.set("from", filterFrom);
+    if (filterTo) params.set("to", filterTo);
+    return requestJson<BookingRow[]>(`/api/bookings?${params.toString()}`);
+  }, [filterStatus, filterHallId, filterFrom, filterTo]);
+
+  const {
+    data,
+    loading,
+    error,
+    reload
+  } = useFetchData(loadBookings, "Не удалось загрузить бронирования");
+
+  const bookings = data ?? [];
+
   useEffect(() => {
-    loadBookings();
-  }, [loadBookings]);
+    reload();
+  }, [reload]);
 
   async function handleStatusChange(id: string, status: BookingStatus) {
     setUpdatingId(id);
-    setError(null);
+    setActionError(null);
     try {
-      const res = await fetch(`/api/bookings/${id}`, {
+      await requestJson(`/api/bookings/${id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status })
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        setError(body?.error?.message ?? "Не удалось изменить статус");
-        return;
-      }
-      await loadBookings();
-    } catch {
-      setError("Сетевая ошибка");
+      await reload();
+    } catch (err) {
+      setActionError(getErrorMessage(err));
     } finally {
       setUpdatingId(null);
     }
   }
 
   const summary = useMemo(() => {
+    const committed = COMMITTED_BOOKING_STATUSES as readonly string[];
     const total = bookings.length;
     const pending = bookings.filter((b) => b.status === "PENDING").length;
     const revenue = bookings
-      .filter(
-        (b) => b.status === "CONFIRMED" || b.status === "COMPLETED"
-      )
+      .filter((b) => committed.includes(b.status))
       .reduce((sum, b) => sum + Number(b.totalPrice), 0);
     return { total, pending, revenue };
   }, [bookings]);
@@ -130,34 +104,29 @@ export default function AdminBookingsPage() {
   function resetFilters() {
     setFilterStatus("");
     setFilterHallId("");
-    setFilterFrom(todayIso());
-    setFilterTo(addDaysIso(todayIso(), 30));
+    setFilterFrom(todayIsoLocal());
+    setFilterTo(addDaysIsoLocal(todayIsoLocal(), 30));
   }
 
   const hasActiveFilters = !!(filterStatus || filterHallId);
 
   return (
     <div className="space-y-6">
-      {/* Заголовок */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-white">
-            Бронирования
-          </h1>
-          <p className="mt-1 text-sm text-stone-500">
-            Все записи с сайта и Telegram. Меняйте статусы прямо в таблице.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={loadBookings}
-          disabled={loading}
-          className="btn-secondary"
-        >
-          <IconRefresh width={16} height={16} className={loading ? "animate-spin" : ""} />
-          Обновить
-        </button>
-      </div>
+      <PageHeader
+        title="Бронирования"
+        subtitle="Все записи с сайта и Telegram. Меняйте статусы прямо в таблице."
+        actions={
+          <button
+            type="button"
+            onClick={reload}
+            disabled={loading}
+            className="btn-secondary"
+          >
+            <IconRefresh width={16} height={16} className={loading ? "animate-spin" : ""} />
+            Обновить
+          </button>
+        }
+      />
 
       {/* Статистика периода */}
       <div className="grid gap-4 sm:grid-cols-3">
@@ -175,7 +144,7 @@ export default function AdminBookingsPage() {
         />
         <StatCard
           label="Выручка (подтв. + заверш.)"
-          value={`${new Intl.NumberFormat("ru-RU").format(summary.revenue)} сум`}
+          value={`${formatPrice(summary.revenue)} сум`}
           icon={<IconTrending width={18} height={18} />}
           accent="bg-emerald-500/15 text-emerald-400"
         />
@@ -252,6 +221,7 @@ export default function AdminBookingsPage() {
       </div>
 
       {error && <div className="alert-error">{error}</div>}
+      {actionError && <div className="alert-error">{actionError}</div>}
 
       <BookingsTable
         bookings={bookings}
@@ -259,32 +229,6 @@ export default function AdminBookingsPage() {
         updatingId={updatingId}
         onStatusChange={handleStatusChange}
       />
-    </div>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  icon,
-  accent
-}: {
-  label: string;
-  value: string;
-  icon: React.ReactNode;
-  accent: string;
-}) {
-  return (
-    <div className="card flex items-center gap-4 p-5">
-      <span className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl ${accent}`}>
-        {icon}
-      </span>
-      <div className="min-w-0">
-        <div className="text-[13px] text-stone-500">{label}</div>
-        <div className="truncate text-xl font-semibold tracking-tight text-white">
-          {value}
-        </div>
-      </div>
     </div>
   );
 }

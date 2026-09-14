@@ -6,6 +6,7 @@ import {
   IconCheck,
   IconSave
 } from "@/components/ui/icons";
+import { compareTime } from "@/lib/dates";
 
 export type WorkingHoursRow = {
   dayOfWeek: number; // 0 = воскресенье ... 6 = суббота
@@ -225,10 +226,4 @@ export default function ScheduleEditor({
       </div>
     </form>
   );
-}
-
-function compareTime(a: string, b: string): number {
-  const [ah, am] = a.split(":").map(Number);
-  const [bh, bm] = b.split(":").map(Number);
-  return ah * 60 + am - (bh * 60 + bm);
 }

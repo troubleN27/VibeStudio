@@ -1,22 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
 import { z } from "zod";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import {
+  DATE_RE,
+  TIME_RE,
+  compareTime,
+  dateKeyToUtc,
+  timeToMinutes
+} from "@/lib/dates";
+import {
+  ApiError,
+  parseJson,
+  requireAdmin,
+  validate,
+  withApiHandler
+} from "@/lib/api";
 
 /* =========================================================================
  * Zod-схемы (локальные, специфичны для этого эндпоинта)
  * ========================================================================= */
-
-const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
-const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
 
 const createBlockedSlotSchema = z
   .object({
     hallId: z.string().min(1, "Не выбран зал"),
     date: z
       .string()
-      .regex(dateRegex, "Ожидается дата YYYY-MM-DD")
+      .regex(DATE_RE, "Ожидается дата YYYY-MM-DD")
       .refine(
         (val) => {
           const d = new Date(`${val}T00:00:00.000Z`);
@@ -31,10 +40,10 @@ const createBlockedSlotSchema = z
         { message: "Некорректная дата" }
       ),
     startTime: z
-      .union([z.string().regex(timeRegex, "Ожидается HH:MM"), z.null()])
+      .union([z.string().regex(TIME_RE, "Ожидается HH:MM"), z.null()])
       .optional(),
     endTime: z
-      .union([z.string().regex(timeRegex, "Ожидается HH:MM"), z.null()])
+      .union([z.string().regex(TIME_RE, "Ожидается HH:MM"), z.null()])
       .optional(),
     reason: z
       .string()
@@ -67,31 +76,12 @@ const createBlockedSlotSchema = z
  * Список блокировок для зала.
  * ========================================================================= */
 export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "UNAUTHORIZED",
-            message: "Требуется авторизация"
-          }
-        },
-        { status: 401 }
-      );
-    }
+  return withApiHandler(async () => {
+    await requireAdmin();
 
     const hallId = req.nextUrl.searchParams.get("hallId");
     if (!hallId) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Не указан hallId"
-          }
-        },
-        { status: 400 }
-      );
+      throw new ApiError(400, "VALIDATION_ERROR", "Не указан hallId");
     }
 
     const hall = await prisma.hall.findUnique({
@@ -99,15 +89,7 @@ export async function GET(req: NextRequest) {
       select: { id: true }
     });
     if (!hall) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "NOT_FOUND",
-            message: "Зал не найден"
-          }
-        },
-        { status: 404 }
-      );
+      throw new ApiError(404, "NOT_FOUND", "Зал не найден");
     }
 
     const rows = await prisma.blockedSlot.findMany({
@@ -123,28 +105,17 @@ export async function GET(req: NextRequest) {
       }
     });
 
-    const serialized = rows.map((r) => ({
-      id: r.id,
-      hallId: r.hallId,
-      date: r.date.toISOString().slice(0, 10),
-      startTime: r.startTime,
-      endTime: r.endTime,
-      reason: r.reason
-    }));
-
-    return NextResponse.json(serialized);
-  } catch (err) {
-    console.error("[GET /api/admin/blocked-slots]", err);
     return NextResponse.json(
-      {
-        error: {
-          code: "INTERNAL_ERROR",
-          message: "Внутренняя ошибка сервера"
-        }
-      },
-      { status: 500 }
+      rows.map((r) => ({
+        id: r.id,
+        hallId: r.hallId,
+        date: r.date.toISOString().slice(0, 10),
+        startTime: r.startTime,
+        endTime: r.endTime,
+        reason: r.reason
+      }))
     );
-  }
+  });
 }
 
 /* =========================================================================
@@ -154,66 +125,23 @@ export async function GET(req: NextRequest) {
  * startTime/endTime = null → блокирует весь день.
  * ========================================================================= */
 export async function POST(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "UNAUTHORIZED",
-            message: "Требуется авторизация"
-          }
-        },
-        { status: 401 }
-      );
-    }
+  return withApiHandler(async () => {
+    await requireAdmin();
 
-    const body = await req.json().catch(() => null);
-    if (!body) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Некорректное тело запроса"
-          }
-        },
-        { status: 400 }
-      );
-    }
+    const body = await parseJson(req);
+    const data = validate(createBlockedSlotSchema, body);
 
-    const parsed = createBlockedSlotSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Некорректные данные",
-            details: parsed.error.flatten()
-          }
-        },
-        { status: 400 }
-      );
-    }
-
-    const { hallId, date, startTime, endTime, reason } = parsed.data;
+    const { hallId, date, startTime, endTime } = data;
 
     const hall = await prisma.hall.findUnique({
       where: { id: hallId },
       select: { id: true }
     });
     if (!hall) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "NOT_FOUND",
-            message: "Зал не найден"
-          }
-        },
-        { status: 404 }
-      );
+      throw new ApiError(404, "NOT_FOUND", "Зал не найден");
     }
 
-    const dateUtc = new Date(`${date}T00:00:00.000Z`);
+    const dateUtc = dateKeyToUtc(date);
     const normalizedStart =
       startTime === undefined || startTime === null ? null : startTime;
     const normalizedEnd =
@@ -241,14 +169,10 @@ export async function POST(req: NextRequest) {
       });
 
       if (conflicts.length > 0) {
-        return NextResponse.json(
-          {
-            error: {
-              code: "HAS_ACTIVE_BOOKINGS",
-              message: `Интервал пересекается с ${conflicts.length} активными бронями. Сначала отмените их.`
-            }
-          },
-          { status: 409 }
+        throw new ApiError(
+          409,
+          "HAS_ACTIVE_BOOKINGS",
+          `Интервал пересекается с ${conflicts.length} активными бронями. Сначала отмените их.`
         );
       }
     } else {
@@ -261,14 +185,10 @@ export async function POST(req: NextRequest) {
         }
       });
       if (anyBookings > 0) {
-        return NextResponse.json(
-          {
-            error: {
-              code: "HAS_ACTIVE_BOOKINGS",
-              message: `На этот день есть ${anyBookings} активных броней. Сначала отмените их.`
-            }
-          },
-          { status: 409 }
+        throw new ApiError(
+          409,
+          "HAS_ACTIVE_BOOKINGS",
+          `На этот день есть ${anyBookings} активных броней. Сначала отмените их.`
         );
       }
     }
@@ -279,7 +199,7 @@ export async function POST(req: NextRequest) {
         date: dateUtc,
         startTime: normalizedStart,
         endTime: normalizedEnd,
-        reason: reason ?? null
+        reason: data.reason ?? null
       },
       select: {
         id: true,
@@ -302,18 +222,7 @@ export async function POST(req: NextRequest) {
       },
       { status: 201 }
     );
-  } catch (err) {
-    console.error("[POST /api/admin/blocked-slots]", err);
-    return NextResponse.json(
-      {
-        error: {
-          code: "INTERNAL_ERROR",
-          message: "Внутренняя ошибка сервера"
-        }
-      },
-      { status: 500 }
-    );
-  }
+  });
 }
 
 /* =========================================================================
@@ -321,31 +230,12 @@ export async function POST(req: NextRequest) {
  * Удаление блокировки по id.
  * ========================================================================= */
 export async function DELETE(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "UNAUTHORIZED",
-            message: "Требуется авторизация"
-          }
-        },
-        { status: 401 }
-      );
-    }
+  return withApiHandler(async () => {
+    await requireAdmin();
 
     const id = req.nextUrl.searchParams.get("id");
     if (!id) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Не указан id"
-          }
-        },
-        { status: 400 }
-      );
+      throw new ApiError(400, "VALIDATION_ERROR", "Не указан id");
     }
 
     const existing = await prisma.blockedSlot.findUnique({
@@ -353,45 +243,11 @@ export async function DELETE(req: NextRequest) {
       select: { id: true }
     });
     if (!existing) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "NOT_FOUND",
-            message: "Блокировка не найдена"
-          }
-        },
-        { status: 404 }
-      );
+      throw new ApiError(404, "NOT_FOUND", "Блокировка не найдена");
     }
 
     await prisma.blockedSlot.delete({ where: { id } });
 
     return NextResponse.json({ ok: true });
-  } catch (err) {
-    console.error("[DELETE /api/admin/blocked-slots]", err);
-    return NextResponse.json(
-      {
-        error: {
-          code: "INTERNAL_ERROR",
-          message: "Внутренняя ошибка сервера"
-        }
-      },
-      { status: 500 }
-    );
-  }
-}
-
-/* =========================================================================
- * Утилиты
- * ========================================================================= */
-
-function compareTime(a: string, b: string): number {
-  const [ah, am] = a.split(":").map(Number);
-  const [bh, bm] = b.split(":").map(Number);
-  return ah * 60 + am - (bh * 60 + bm);
-}
-
-function timeToMinutes(time: string): number {
-  const [h, m] = time.split(":").map(Number);
-  return h * 60 + m;
+  });
 }

@@ -10,6 +10,10 @@ import {
 import ScheduleEditor, {
   type WorkingHoursRow
 } from "@/components/admin/ScheduleEditor";
+import { PageHeader } from "@/components/admin/PageHeader";
+import { EmptyState } from "@/components/admin/EmptyState";
+import { compareTime, formatDateRu } from "@/lib/dates";
+import { getErrorMessage, requestJson } from "@/lib/client-fetch";
 
 type HallItem = {
   id: string;
@@ -60,9 +64,8 @@ export default function AdminSchedulePage() {
   useEffect(() => {
     let cancelled = false;
     setLoadingHalls(true);
-    fetch("/api/halls?includeInactive=true")
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((data: HallItem[]) => {
+    requestJson<HallItem[]>("/api/halls?includeInactive=true")
+      .then((data) => {
         if (cancelled) return;
         setHalls(data);
         if (data.length > 0) setSelectedHallId(data[0].id);
@@ -82,11 +85,9 @@ export default function AdminSchedulePage() {
     setLoadingSchedule(true);
     setScheduleError(null);
     try {
-      const res = await fetch(
+      const data = await requestJson<ScheduleResponse>(
         `/api/admin/schedule?hallId=${encodeURIComponent(hallId)}`
       );
-      if (!res.ok) throw new Error("failed");
-      const data: ScheduleResponse = await res.json();
       const rows: WorkingHoursRow[] = data.workingHours.map((w) => ({
         dayOfWeek: w.dayOfWeek,
         startTime: w.startTime,
@@ -94,7 +95,8 @@ export default function AdminSchedulePage() {
         enabled: true
       }));
       setWorkingHours(rows);
-    } catch {
+    } catch (err) {
+      console.error(err);
       setScheduleError("Не удалось загрузить расписание");
       setWorkingHours([]);
     } finally {
@@ -104,13 +106,13 @@ export default function AdminSchedulePage() {
 
   const loadBlocked = useCallback(async (hallId: string) => {
     try {
-      const res = await fetch(
-        `/api/admin/blocked-slots?hallId=${encodeURIComponent(hallId)}`
+      setBlockedSlots(
+        await requestJson<BlockedSlotItem[]>(
+          `/api/admin/blocked-slots?hallId=${encodeURIComponent(hallId)}`
+        )
       );
-      if (!res.ok) throw new Error("failed");
-      const data: BlockedSlotItem[] = await res.json();
-      setBlockedSlots(data);
-    } catch {
+    } catch (err) {
+      console.error(err);
       setBlockedSlots([]);
     }
   }, []);
@@ -125,9 +127,8 @@ export default function AdminSchedulePage() {
     setSavingSchedule(true);
     setScheduleError(null);
     try {
-      const res = await fetch("/api/admin/schedule", {
+      await requestJson("/api/admin/schedule", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           hallId: selectedHallId,
           workingHours: rows.map((r) => ({
@@ -137,16 +138,9 @@ export default function AdminSchedulePage() {
           }))
         })
       });
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        setScheduleError(body?.error?.message ?? "Не удалось сохранить");
-        return;
-      }
-
       await loadSchedule(selectedHallId);
-    } catch {
-      setScheduleError("Сетевая ошибка");
+    } catch (err) {
+      setScheduleError(getErrorMessage(err));
     } finally {
       setSavingSchedule(false);
     }
@@ -177,9 +171,8 @@ export default function AdminSchedulePage() {
 
     setBlockSubmitting(true);
     try {
-      const res = await fetch("/api/admin/blocked-slots", {
+      await requestJson("/api/admin/blocked-slots", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           hallId: selectedHallId,
           date: blockDate,
@@ -189,20 +182,14 @@ export default function AdminSchedulePage() {
         })
       });
 
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        setBlockError(body?.error?.message ?? "Не удалось заблокировать");
-        return;
-      }
-
       setBlockDate("");
       setBlockStart("");
       setBlockEnd("");
       setBlockReason("");
       setBlockFullDay(false);
       await loadBlocked(selectedHallId);
-    } catch {
-      setBlockError("Сетевая ошибка");
+    } catch (err) {
+      setBlockError(getErrorMessage(err));
     } finally {
       setBlockSubmitting(false);
     }
@@ -210,17 +197,14 @@ export default function AdminSchedulePage() {
 
   async function handleDeleteBlocked(id: string) {
     if (!confirm("Удалить блокировку?")) return;
+    setError(null);
     try {
-      const res = await fetch(`/api/admin/blocked-slots?id=${id}`, {
+      await requestJson(`/api/admin/blocked-slots?id=${id}`, {
         method: "DELETE"
       });
-      if (!res.ok) {
-        setError("Не удалось удалить блокировку");
-        return;
-      }
       await loadBlocked(selectedHallId);
-    } catch {
-      setError("Сетевая ошибка");
+    } catch (err) {
+      setError(getErrorMessage(err));
     }
   }
 
@@ -238,34 +222,22 @@ export default function AdminSchedulePage() {
   if (halls.length === 0) {
     return (
       <div className="space-y-6">
-        <h1 className="text-2xl font-semibold tracking-tight text-white">
-          Расписание
-        </h1>
-        <div className="empty">
-          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-500/15 text-brand-400">
-            <IconCalendarOff width={26} height={26} />
-          </span>
-          <p className="mt-4 text-sm font-medium text-stone-200">
-            Сначала создайте хотя бы один зал
-          </p>
-          <p className="mt-1 text-xs text-stone-400">
-            Перейдите в раздел «Залы» и добавьте пространство
-          </p>
-        </div>
+        <PageHeader title="Расписание" />
+        <EmptyState
+          icon={<IconCalendarOff width={26} height={26} />}
+          title="Сначала создайте хотя бы один зал"
+          subtitle="Перейдите в раздел «Залы» и добавьте пространство"
+        />
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-white">
-          Расписание
-        </h1>
-        <p className="mt-1 text-sm text-stone-500">
-          Рабочие часы зала и исключения — нерабочие дни и технические перерывы.
-        </p>
-      </div>
+      <PageHeader
+        title="Расписание"
+        subtitle="Рабочие часы зала и исключения — нерабочие дни и технические перерывы."
+      />
 
       {/* Выбор зала */}
       <div className="card flex max-w-md items-end gap-3 p-4">
@@ -430,7 +402,7 @@ export default function AdminSchedulePage() {
                       </span>
                       <div>
                         <div className="font-medium text-white">
-                          {formatDate(b.date)}{" "}
+                          {formatDateRu(b.date)}{" "}
                           <span className="font-normal text-stone-400">
                             {b.startTime && b.endTime
                               ? `${b.startTime} — ${b.endTime}`
@@ -459,19 +431,4 @@ export default function AdminSchedulePage() {
       </div>
     </div>
   );
-}
-
-function compareTime(a: string, b: string): number {
-  const [ah, am] = a.split(":").map(Number);
-  const [bh, bm] = b.split(":").map(Number);
-  return ah * 60 + am - (bh * 60 + bm);
-}
-
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString("ru-RU", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric"
-  });
 }

@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { updateServiceSchema } from "@/lib/validation/service.schema";
+import { startOfTodayUtc } from "@/lib/dates";
+import {
+  ApiError,
+  isAdmin,
+  parseJson,
+  requireAdmin,
+  validate,
+  withApiHandler
+} from "@/lib/api";
 
 type RouteContext = {
   params: { id: string };
@@ -13,7 +20,7 @@ type RouteContext = {
  * Публично: активная услуга доступна любому; скрытая — только админу.
  * ========================================================================= */
 export async function GET(_req: NextRequest, { params }: RouteContext) {
-  try {
+  return withApiHandler(async () => {
     const service = await prisma.service.findUnique({
       where: { id: params.id },
       select: {
@@ -28,49 +35,15 @@ export async function GET(_req: NextRequest, { params }: RouteContext) {
       }
     });
 
-    if (!service) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "NOT_FOUND",
-            message: "Услуга не найдена"
-          }
-        },
-        { status: 404 }
-      );
-    }
-
-    if (!service.isActive) {
-      const session = await getServerSession(authOptions);
-      if (!session?.user) {
-        return NextResponse.json(
-          {
-            error: {
-              code: "NOT_FOUND",
-              message: "Услуга не найдена"
-            }
-          },
-          { status: 404 }
-        );
-      }
+    if (!service || (!service.isActive && !(await isAdmin()))) {
+      throw new ApiError(404, "NOT_FOUND", "Услуга не найдена");
     }
 
     return NextResponse.json({
       ...service,
       price: Number(service.price)
     });
-  } catch (err) {
-    console.error("[GET /api/services/[id]]", err);
-    return NextResponse.json(
-      {
-        error: {
-          code: "INTERNAL_ERROR",
-          message: "Внутренняя ошибка сервера"
-        }
-      },
-      { status: 500 }
-    );
-  }
+  });
 }
 
 /* =========================================================================
@@ -78,98 +51,41 @@ export async function GET(_req: NextRequest, { params }: RouteContext) {
  * Только админ: частичное обновление услуги.
  * ========================================================================= */
 export async function PATCH(req: NextRequest, { params }: RouteContext) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "UNAUTHORIZED",
-            message: "Требуется авторизация"
-          }
-        },
-        { status: 401 }
-      );
-    }
+  return withApiHandler(async () => {
+    await requireAdmin();
 
-    const body = await req.json().catch(() => null);
-    if (!body) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Некорректное тело запроса"
-          }
-        },
-        { status: 400 }
-      );
-    }
-
-    const parsed = updateServiceSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Некорректные данные",
-            details: parsed.error.flatten()
-          }
-        },
-        { status: 400 }
-      );
-    }
+    const body = await parseJson(req);
+    const data = validate(updateServiceSchema, body);
 
     const existing = await prisma.service.findUnique({
       where: { id: params.id }
     });
     if (!existing) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "NOT_FOUND",
-            message: "Услуга не найдена"
-          }
-        },
-        { status: 404 }
-      );
+      throw new ApiError(404, "NOT_FOUND", "Услуга не найдена");
     }
 
     // Если меняется hallId — проверяем, что новый зал существует
-    if (
-      parsed.data.hallId !== undefined &&
-      parsed.data.hallId !== existing.hallId
-    ) {
+    if (data.hallId !== undefined && data.hallId !== existing.hallId) {
       const hall = await prisma.hall.findUnique({
-        where: { id: parsed.data.hallId },
+        where: { id: data.hallId },
         select: { id: true }
       });
       if (!hall) {
-        return NextResponse.json(
-          {
-            error: {
-              code: "HALL_NOT_FOUND",
-              message: "Указанный зал не существует"
-            }
-          },
-          { status: 400 }
-        );
+        throw new ApiError(400, "HALL_NOT_FOUND", "Указанный зал не существует");
       }
     }
 
-    const data: Record<string, unknown> = {};
-    if (parsed.data.name !== undefined) data.name = parsed.data.name;
-    if ("description" in parsed.data)
-      data.description = parsed.data.description ?? null;
-    if (parsed.data.price !== undefined) data.price = parsed.data.price;
-    if (parsed.data.durationMin !== undefined)
-      data.durationMin = parsed.data.durationMin;
-    if (parsed.data.hallId !== undefined) data.hallId = parsed.data.hallId;
-    if (parsed.data.isActive !== undefined)
-      data.isActive = parsed.data.isActive;
+    const update: Record<string, unknown> = {};
+    if (data.name !== undefined) update.name = data.name;
+    if ("description" in data) update.description = data.description ?? null;
+    if (data.price !== undefined) update.price = data.price;
+    if (data.durationMin !== undefined) update.durationMin = data.durationMin;
+    if (data.hallId !== undefined) update.hallId = data.hallId;
+    if (data.isActive !== undefined) update.isActive = data.isActive;
 
     const updated = await prisma.service.update({
       where: { id: params.id },
-      data,
+      data: update,
       select: {
         id: true,
         name: true,
@@ -186,18 +102,7 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
       ...updated,
       price: Number(updated.price)
     });
-  } catch (err) {
-    console.error("[PATCH /api/services/[id]]", err);
-    return NextResponse.json(
-      {
-        error: {
-          code: "INTERNAL_ERROR",
-          message: "Внутренняя ошибка сервера"
-        }
-      },
-      { status: 500 }
-    );
-  }
+  });
 }
 
 /* =========================================================================
@@ -206,58 +111,30 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
  * Нельзя деактивировать услугу с будущими активными бронями.
  * ========================================================================= */
 export async function DELETE(_req: NextRequest, { params }: RouteContext) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "UNAUTHORIZED",
-            message: "Требуется авторизация"
-          }
-        },
-        { status: 401 }
-      );
-    }
+  return withApiHandler(async () => {
+    await requireAdmin();
 
     const service = await prisma.service.findUnique({
       where: { id: params.id }
     });
     if (!service) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "NOT_FOUND",
-            message: "Услуга не найдена"
-          }
-        },
-        { status: 404 }
-      );
+      throw new ApiError(404, "NOT_FOUND", "Услуга не найдена");
     }
 
     // Проверка будущих броней
-    const now = new Date();
-    const todayUtc = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-    );
-
     const futureBookings = await prisma.booking.count({
       where: {
         serviceId: params.id,
-        date: { gte: todayUtc },
+        date: { gte: startOfTodayUtc() },
         status: { in: ["PENDING", "CONFIRMED"] }
       }
     });
 
     if (futureBookings > 0) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "HAS_FUTURE_BOOKINGS",
-            message: `У услуги ${futureBookings} активных будущих броней. Сначала отмените или завершите их.`
-          }
-        },
-        { status: 409 }
+      throw new ApiError(
+        409,
+        "HAS_FUTURE_BOOKINGS",
+        `У услуги ${futureBookings} активных будущих броней. Сначала отмените или завершите их.`
       );
     }
 
@@ -280,16 +157,5 @@ export async function DELETE(_req: NextRequest, { params }: RouteContext) {
       ...updated,
       price: Number(updated.price)
     });
-  } catch (err) {
-    console.error("[DELETE /api/services/[id]]", err);
-    return NextResponse.json(
-      {
-        error: {
-          code: "INTERNAL_ERROR",
-          message: "Внутренняя ошибка сервера"
-        }
-      },
-      { status: 500 }
-    );
-  }
+  });
 }

@@ -5,6 +5,7 @@ import {
   CAL_NEXT_CALLBACK,
   BACK_TO_SERVICES_CALLBACK
 } from "../keyboards/calendarKeyboard";
+import { escapeMarkdown } from "@/lib/format";
 import type { BotContext } from "../session";
 
 /**
@@ -156,8 +157,4 @@ export async function handleBackToServices(
   const { showSelectService } = await import("./selectService");
   await showSelectService(ctx);
   return true;
-}
-
-function escapeMarkdown(text: string): string {
-  return text.replace(/([_*`\[])/g, "\\$1");
 }

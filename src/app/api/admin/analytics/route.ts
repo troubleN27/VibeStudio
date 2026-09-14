@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { COMMITTED_BOOKING_STATUSES } from "@/lib/constants";
+import { timeToMinutes } from "@/lib/dates";
+import { ApiError, requireAdmin, withApiHandler } from "@/lib/api";
 
 /* =========================================================================
  * Константы
@@ -9,9 +10,6 @@ import { prisma } from "@/lib/prisma";
 
 const SLOT_STEP_MIN = 30;
 const PERIOD_REGEX = /^\d{4}-(0[1-9]|1[0-2])$/;
-
-/** Статусы, которые считаем «состоявшимися» для аналитики. */
-const COMMITTED_STATUSES = ["CONFIRMED", "COMPLETED"] as const;
 
 /* =========================================================================
  * GET /api/admin/analytics?hallId=…&period=YYYY-MM
@@ -28,45 +26,22 @@ const COMMITTED_STATUSES = ["CONFIRMED", "COMPLETED"] as const;
  *   }
  * ========================================================================= */
 export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "UNAUTHORIZED",
-            message: "Требуется авторизация"
-          }
-        },
-        { status: 401 }
-      );
-    }
+  return withApiHandler(async () => {
+    await requireAdmin();
 
     const { searchParams } = new URL(req.url);
     const hallId = searchParams.get("hallId");
     const period = searchParams.get("period");
 
     if (!hallId) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Не указан hallId"
-          }
-        },
-        { status: 400 }
-      );
+      throw new ApiError(400, "VALIDATION_ERROR", "Не указан hallId");
     }
 
     if (!period || !PERIOD_REGEX.test(period)) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "period должен быть в формате YYYY-MM"
-          }
-        },
-        { status: 400 }
+      throw new ApiError(
+        400,
+        "VALIDATION_ERROR",
+        "period должен быть в формате YYYY-MM"
       );
     }
 
@@ -75,15 +50,7 @@ export async function GET(req: NextRequest) {
       select: { id: true, name: true }
     });
     if (!hall) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "NOT_FOUND",
-            message: "Зал не найден"
-          }
-        },
-        { status: 404 }
-      );
+      throw new ApiError(404, "NOT_FOUND", "Зал не найден");
     }
 
     const [yearStr, monthStr] = period.split("-");
@@ -140,12 +107,14 @@ export async function GET(req: NextRequest) {
     let revenue = 0;
     const statusBreakdown: Record<string, number> = {};
 
+    const committed = COMMITTED_BOOKING_STATUSES as readonly string[];
+
     for (const b of bookings) {
       // Разбивка по статусам — по всем броням периода
       statusBreakdown[b.status] = (statusBreakdown[b.status] ?? 0) + 1;
 
       // Утилизация и выручка — только по «состоявшимся» статусам
-      if ((COMMITTED_STATUSES as readonly string[]).includes(b.status)) {
+      if (committed.includes(b.status)) {
         const slots = Math.max(
           1,
           Math.round(b.service.durationMin / SLOT_STEP_MIN)
@@ -172,25 +141,5 @@ export async function GET(req: NextRequest) {
       revenue,
       statusBreakdown
     });
-  } catch (err) {
-    console.error("[GET /api/admin/analytics]", err);
-    return NextResponse.json(
-      {
-        error: {
-          code: "INTERNAL_ERROR",
-          message: "Внутренняя ошибка сервера"
-        }
-      },
-      { status: 500 }
-    );
-  }
-}
-
-/* =========================================================================
- * Утилиты
- * ========================================================================= */
-
-function timeToMinutes(time: string): number {
-  const [h, m] = time.split(":").map(Number);
-  return h * 60 + m;
+  });
 }

@@ -4,6 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { IconArrowLeft, IconCamera, IconEdit, IconEye, IconEyeOff, IconPlus } from "@/components/ui/icons";
 import HallForm, { type HallFormValues } from "@/components/admin/HallForm";
+import { PageHeader } from "@/components/admin/PageHeader";
+import { EmptyState } from "@/components/admin/EmptyState";
+import { getErrorMessage, requestJson } from "@/lib/client-fetch";
+import { useFetchData } from "@/hooks/useFetchData";
 
 type HallItem = {
   id: string;
@@ -16,35 +20,32 @@ type HallItem = {
 type Mode = { kind: "list" } | { kind: "create" } | { kind: "edit"; hall: HallItem };
 
 export default function AdminHallsPage() {
-  const [halls, setHalls] = useState<HallItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<Mode>({ kind: "list" });
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      // includeInactive=true поддерживается бэкендом для админа
-      const res = await fetch("/api/halls?includeInactive=true");
-      if (!res.ok) throw new Error("failed");
-      const data: HallItem[] = await res.json();
-      setHalls(data);
-    } catch {
-      setError("Не удалось загрузить список залов");
-    } finally {
-      setLoading(false);
-    }
+    // includeInactive=true поддерживается бэкендом для админа
+    return requestJson<HallItem[]>("/api/halls?includeInactive=true");
   }, []);
 
+  const {
+    data,
+    loading,
+    error: loadError,
+    reload
+  } = useFetchData(load, "Не удалось загрузить список залов");
+
+  const halls = data ?? [];
+
   useEffect(() => {
-    load();
-  }, [load]);
+    reload();
+  }, [reload]);
 
   async function handleSubmit(values: HallFormValues) {
     setSubmitting(true);
-    setError(null);
+    setActionError(null);
     try {
       const payload = {
         name: values.name,
@@ -53,27 +54,20 @@ export default function AdminHallsPage() {
       };
 
       const isEdit = !!values.id;
-      const res = await fetch(
+      await requestJson(
         isEdit ? `/api/halls/${values.id}` : "/api/halls",
         {
           method: isEdit ? "PATCH" : "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(
             isEdit ? { ...payload, isActive: values.isActive } : payload
           )
         }
       );
 
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        setError(body?.error?.message ?? "Не удалось сохранить зал");
-        return;
-      }
-
       setMode({ kind: "list" });
-      await load();
-    } catch {
-      setError("Сетевая ошибка");
+      await reload();
+    } catch (err) {
+      setActionError(getErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
@@ -88,38 +82,27 @@ export default function AdminHallsPage() {
       return;
     }
     setDeletingId(hall.id);
-    setError(null);
+    setActionError(null);
     try {
-      const res = await fetch(`/api/halls/${hall.id}`, { method: "DELETE" });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        setError(body?.error?.message ?? "Не удалось деактивировать зал");
-        return;
-      }
-      await load();
-    } catch {
-      setError("Сетевая ошибка");
+      await requestJson(`/api/halls/${hall.id}`, { method: "DELETE" });
+      await reload();
+    } catch (err) {
+      setActionError(getErrorMessage(err));
     } finally {
       setDeletingId(null);
     }
   }
 
   async function handleActivate(hall: HallItem) {
-    setError(null);
+    setActionError(null);
     try {
-      const res = await fetch(`/api/halls/${hall.id}`, {
+      await requestJson(`/api/halls/${hall.id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isActive: true })
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        setError(body?.error?.message ?? "Не удалось активировать зал");
-        return;
-      }
-      await load();
-    } catch {
-      setError("Сетевая ошибка");
+      await reload();
+    } catch (err) {
+      setActionError(getErrorMessage(err));
     }
   }
 
@@ -147,7 +130,7 @@ export default function AdminHallsPage() {
               : null
           }
           submitting={submitting}
-          error={error}
+          error={actionError}
           onSubmit={handleSubmit}
           onCancel={() => setMode({ kind: "list" })}
         />
@@ -157,29 +140,27 @@ export default function AdminHallsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-white">
-            Залы
-          </h1>
-          <p className="mt-1 text-sm text-stone-500">
-            Управление пространствами студии. Неактивные залы не видны клиентам.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            setError(null);
-            setMode({ kind: "create" });
-          }}
-          className="btn-primary"
-        >
-          <IconPlus width={16} height={16} />
-          Новый зал
-        </button>
-      </div>
+      <PageHeader
+        title="Залы"
+        subtitle="Управление пространствами студии. Неактивные залы не видны клиентам."
+        actions={
+          <button
+            type="button"
+            onClick={() => {
+              setActionError(null);
+              setMode({ kind: "create" });
+            }}
+            className="btn-primary"
+          >
+            <IconPlus width={16} height={16} />
+            Новый зал
+          </button>
+        }
+      />
 
-      {error && <div className="alert-error">{error}</div>}
+      {(loadError || actionError) && (
+        <div className="alert-error">{loadError ?? actionError}</div>
+      )}
 
       {loading ? (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -194,17 +175,11 @@ export default function AdminHallsPage() {
           ))}
         </div>
       ) : halls.length === 0 ? (
-        <div className="empty">
-          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-500/15 text-brand-400">
-            <IconCamera width={26} height={26} />
-          </span>
-          <p className="mt-4 text-sm font-medium text-stone-200">
-            Залы ещё не созданы
-          </p>
-          <p className="mt-1 text-xs text-stone-500">
-            Добавьте первый зал, чтобы клиенты могли бронировать
-          </p>
-        </div>
+        <EmptyState
+          icon={<IconCamera width={26} height={26} />}
+          title="Залы ещё не созданы"
+          subtitle="Добавьте первый зал, чтобы клиенты могли бронировать"
+        />
       ) : (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {halls.map((hall) => (
@@ -256,7 +231,7 @@ export default function AdminHallsPage() {
                   <button
                     type="button"
                     onClick={() => {
-                      setError(null);
+                      setActionError(null);
                       setMode({ kind: "edit", hall });
                     }}
                     className="btn-secondary btn-sm flex-1"

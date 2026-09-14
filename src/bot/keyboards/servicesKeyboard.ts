@@ -1,5 +1,6 @@
 import { InlineKeyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
+import { formatDuration, formatPrice } from "@/lib/format";
 
 /**
  * Callback-данные для кнопок выбора услуги.
@@ -11,23 +12,6 @@ export const SERVICE_CALLBACK_PREFIX = "svc:";
  * Callback-данные для кнопки «Назад» (возврат к выбору зала).
  */
 export const BACK_TO_HALLS_CALLBACK = "back:halls";
-
-/**
- * Форматирование длительности: 60 → "1 ч", 90 → "1 ч 30 мин".
- */
-function formatDuration(minutes: number): string {
-  if (minutes < 60) return `${minutes} мин`;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return m === 0 ? `${h} ч` : `${h} ч ${m} мин`;
-}
-
-/**
- * Форматирование цены: 250000 → "250 000".
- */
-function formatPrice(price: number): string {
-  return new Intl.NumberFormat("ru-RU").format(price);
-}
 
 /**
  * Строит inline-клавиатуру со списком активных услуг выбранного зала.

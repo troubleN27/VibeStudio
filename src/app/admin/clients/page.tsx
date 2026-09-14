@@ -8,19 +8,23 @@ import {
   IconUsers,
   IconWallet
 } from "@/components/ui/icons";
+import { PageHeader } from "@/components/admin/PageHeader";
+import { StatCard } from "@/components/admin/StatCard";
+import { EmptyState } from "@/components/admin/EmptyState";
+import {
+  BOOKING_STATUS_LABELS,
+  BOOKING_STATUS_STYLES,
+  type BookingStatus
+} from "@/lib/constants";
+import { formatPrice } from "@/lib/format";
+import { requestJson } from "@/lib/client-fetch";
 
 type ClientBooking = {
   id: string;
   date: string;
   startTime: string;
   endTime: string;
-  status:
-    | "PENDING"
-    | "CONFIRMED"
-    | "COMPLETED"
-    | "CANCELLED_BY_CLIENT"
-    | "CANCELLED_BY_ADMIN"
-    | "NO_SHOW";
+  status: BookingStatus;
   hall: { id: string; name: string };
   service: { id: string; name: string };
 };
@@ -36,31 +40,6 @@ type ClientItem = {
   lastBookingDate: string | null;
   bookings?: ClientBooking[];
 };
-
-const STATUS_LABELS: Record<ClientBooking["status"], string> = {
-  PENDING: "Ожидает",
-  CONFIRMED: "Подтверждена",
-  COMPLETED: "Завершена",
-  CANCELLED_BY_CLIENT: "Отменена клиентом",
-  CANCELLED_BY_ADMIN: "Отменена админом",
-  NO_SHOW: "Не пришёл"
-};
-
-const STATUS_STYLES: Record<ClientBooking["status"], string> = {
-  PENDING: "bg-amber-500/15 text-amber-300 ring-amber-500/30",
-  CONFIRMED: "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30",
-  COMPLETED: "bg-sky-500/15 text-sky-300 ring-sky-500/30",
-  CANCELLED_BY_CLIENT: "bg-ink-800 text-stone-400 ring-ink-600",
-  CANCELLED_BY_ADMIN: "bg-rose-500/15 text-rose-300 ring-rose-500/30",
-  NO_SHOW: "bg-ink-800 text-stone-500 ring-ink-600"
-};
-
-function formatPrice(n: number): string {
-  return new Intl.NumberFormat("ru-RU", {
-    style: "decimal",
-    maximumFractionDigits: 0
-  }).format(n);
-}
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -88,13 +67,10 @@ export default function AdminClientsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/clients");
-      if (!res.ok) throw new Error("failed");
-      const data: ClientItem[] = await res.json();
-      setClients(data);
-    } catch {
+      setClients(await requestJson<ClientItem[]>("/api/clients"));
+    } catch (err) {
+      console.error(err);
       setError("Не удалось загрузить список клиентов");
-      setClients([]);
     } finally {
       setLoading(false);
     }
@@ -135,14 +111,13 @@ export default function AdminClientsPage() {
 
     setDetailsLoading(true);
     try {
-      const res = await fetch(`/api/clients/${client.id}`);
-      if (!res.ok) throw new Error("failed");
-      const data: ClientItem = await res.json();
+      const data = await requestJson<ClientItem>(`/api/clients/${client.id}`);
       setDetails((prev) => ({
         ...prev,
         [client.id]: data.bookings ?? []
       }));
-    } catch {
+    } catch (err) {
+      console.error(err);
       setDetails((prev) => ({ ...prev, [client.id]: [] }));
     } finally {
       setDetailsLoading(false);
@@ -151,14 +126,10 @@ export default function AdminClientsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-white">
-          Клиенты
-        </h1>
-        <p className="mt-1 text-sm text-stone-500">
-          База клиентов студии с историей бронирований.
-        </p>
-      </div>
+      <PageHeader
+        title="Клиенты"
+        subtitle="База клиентов студии с историей бронирований."
+      />
 
       {/* Метрики */}
       <div className="grid gap-4 sm:grid-cols-3">
@@ -217,21 +188,15 @@ export default function AdminClientsPage() {
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="empty">
-          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-500/15 text-brand-400">
-            <IconSearch width={24} height={24} />
-          </span>
-          <p className="mt-4 text-sm font-medium text-stone-200">
-            {search
-              ? "По запросу ничего не найдено"
-              : "Клиентов пока нет"}
-          </p>
-          <p className="mt-1 text-xs text-stone-400">
-            {search
+        <EmptyState
+          icon={<IconSearch width={24} height={24} />}
+          title={search ? "По запросу ничего не найдено" : "Клиентов пока нет"}
+          subtitle={
+            search
               ? "Попробуйте изменить запрос"
-              : "Клиенты появятся после первых бронирований"}
-          </p>
-        </div>
+              : "Клиенты появятся после первых бронирований"
+          }
+        />
       ) : (
         <div className="card overflow-hidden">
           <div className="overflow-x-auto">
@@ -340,8 +305,8 @@ export default function AdminClientsPage() {
                                         <div className="text-stone-600">
                                           {b.hall.name} · {b.service.name}
                                         </div>
-                                        <span className={`pill ring-1 ${STATUS_STYLES[b.status]}`}>
-                                          {STATUS_LABELS[b.status]}
+                                        <span className={`pill ring-1 ${BOOKING_STATUS_STYLES[b.status]}`}>
+                                          {BOOKING_STATUS_LABELS[b.status]}
                                         </span>
                                       </li>
                                     ))}
@@ -360,32 +325,6 @@ export default function AdminClientsPage() {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  icon,
-  accent
-}: {
-  label: string;
-  value: string;
-  icon: React.ReactNode;
-  accent: string;
-}) {
-  return (
-    <div className="card flex items-center gap-4 p-5">
-      <span className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl ${accent}`}>
-        {icon}
-      </span>
-      <div className="min-w-0">
-        <div className="text-[13px] text-stone-500">{label}</div>
-        <div className="truncate text-xl font-semibold tracking-tight text-white">
-          {value}
-        </div>
-      </div>
     </div>
   );
 }

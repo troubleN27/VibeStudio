@@ -1,19 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
 import { z } from "zod";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { TIME_RE, compareTime } from "@/lib/dates";
+import {
+  ApiError,
+  parseJson,
+  requireAdmin,
+  validate,
+  withApiHandler
+} from "@/lib/api";
 
 /* =========================================================================
  * Валидация (Zod)
  * ========================================================================= */
 
-const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
-
 const workingHourRowSchema = z.object({
   dayOfWeek: z.number().int().min(0).max(6),
-  startTime: z.string().regex(timeRegex, "Ожидается время HH:MM"),
-  endTime: z.string().regex(timeRegex, "Ожидается время HH:MM")
+  startTime: z.string().regex(TIME_RE, "Ожидается время HH:MM"),
+  endTime: z.string().regex(TIME_RE, "Ожидается время HH:MM")
 });
 
 const putScheduleSchema = z.object({
@@ -27,31 +31,12 @@ const putScheduleSchema = z.object({
  * Формат ответа: { hallId, workingHours: [{ dayOfWeek, startTime, endTime }] }
  * ========================================================================= */
 export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "UNAUTHORIZED",
-            message: "Требуется авторизация"
-          }
-        },
-        { status: 401 }
-      );
-    }
+  return withApiHandler(async () => {
+    await requireAdmin();
 
     const hallId = req.nextUrl.searchParams.get("hallId");
     if (!hallId) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Не указан hallId"
-          }
-        },
-        { status: 400 }
-      );
+      throw new ApiError(400, "VALIDATION_ERROR", "Не указан hallId");
     }
 
     const hall = await prisma.hall.findUnique({
@@ -59,15 +44,7 @@ export async function GET(req: NextRequest) {
       select: { id: true }
     });
     if (!hall) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "NOT_FOUND",
-            message: "Зал не найден"
-          }
-        },
-        { status: 404 }
-      );
+      throw new ApiError(404, "NOT_FOUND", "Зал не найден");
     }
 
     const rows = await prisma.workingHours.findMany({
@@ -84,18 +61,7 @@ export async function GET(req: NextRequest) {
       hallId,
       workingHours: rows
     });
-  } catch (err) {
-    console.error("[GET /api/admin/schedule]", err);
-    return NextResponse.json(
-      {
-        error: {
-          code: "INTERNAL_ERROR",
-          message: "Внутренняя ошибка сервера"
-        }
-      },
-      { status: 500 }
-    );
-  }
+  });
 }
 
 /* =========================================================================
@@ -107,48 +73,13 @@ export async function GET(req: NextRequest) {
  * становится выходным). Используется транзакция: deleteAll + createMany.
  * ========================================================================= */
 export async function PUT(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "UNAUTHORIZED",
-            message: "Требуется авторизация"
-          }
-        },
-        { status: 401 }
-      );
-    }
+  return withApiHandler(async () => {
+    await requireAdmin();
 
-    const body = await req.json().catch(() => null);
-    if (!body) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Некорректное тело запроса"
-          }
-        },
-        { status: 400 }
-      );
-    }
+    const body = await parseJson(req);
+    const data = validate(putScheduleSchema, body);
 
-    const parsed = putScheduleSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Некорректные данные",
-            details: parsed.error.flatten()
-          }
-        },
-        { status: 400 }
-      );
-    }
-
-    const { hallId, workingHours } = parsed.data;
+    const { hallId, workingHours } = data;
 
     // Проверяем зал
     const hall = await prisma.hall.findUnique({
@@ -156,28 +87,16 @@ export async function PUT(req: NextRequest) {
       select: { id: true }
     });
     if (!hall) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "NOT_FOUND",
-            message: "Зал не найден"
-          }
-        },
-        { status: 404 }
-      );
+      throw new ApiError(404, "NOT_FOUND", "Зал не найден");
     }
 
     // Проверяем: start < end в каждом дне
     for (const row of workingHours) {
       if (compareTime(row.startTime, row.endTime) >= 0) {
-        return NextResponse.json(
-          {
-            error: {
-              code: "VALIDATION_ERROR",
-              message: `В дне ${row.dayOfWeek} время начала должно быть раньше окончания`
-            }
-          },
-          { status: 400 }
+        throw new ApiError(
+          400,
+          "VALIDATION_ERROR",
+          `В дне ${row.dayOfWeek} время начала должно быть раньше окончания`
         );
       }
     }
@@ -185,14 +104,10 @@ export async function PUT(req: NextRequest) {
     // Проверяем отсутствие дубликатов dayOfWeek
     const days = workingHours.map((r) => r.dayOfWeek);
     if (new Set(days).size !== days.length) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Дублирующиеся дни недели в запросе"
-          }
-        },
-        { status: 400 }
+      throw new ApiError(
+        400,
+        "VALIDATION_ERROR",
+        "Дублирующиеся дни недели в запросе"
       );
     }
 
@@ -223,26 +138,5 @@ export async function PUT(req: NextRequest) {
       hallId,
       workingHours: rows
     });
-  } catch (err) {
-    console.error("[PUT /api/admin/schedule]", err);
-    return NextResponse.json(
-      {
-        error: {
-          code: "INTERNAL_ERROR",
-          message: "Внутренняя ошибка сервера"
-        }
-      },
-      { status: 500 }
-    );
-  }
-}
-
-/* =========================================================================
- * Утилиты
- * ========================================================================= */
-
-function compareTime(a: string, b: string): number {
-  const [ah, am] = a.split(":").map(Number);
-  const [bh, bm] = b.split(":").map(Number);
-  return ah * 60 + am - (bh * 60 + bm);
+  });
 }

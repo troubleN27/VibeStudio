@@ -1,4 +1,6 @@
 import { getAvailability, NotFoundError } from "@/lib/booking-service";
+import { formatDateRu } from "@/lib/dates";
+import { escapeMarkdown } from "@/lib/format";
 import {
   timeSlotsKeyboard,
   parseTimeCallback,
@@ -150,22 +152,4 @@ export async function handleBackToDates(
   const { showSelectDate } = await import("./selectDate");
   await showSelectDate(ctx);
   return true;
-}
-
-/* =========================================================================
- * Утилиты
- * ========================================================================= */
-
-function formatDateRu(iso: string): string {
-  const d = new Date(`${iso}T00:00:00.000Z`);
-  return d.toLocaleDateString("ru-RU", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC"
-  });
-}
-
-function escapeMarkdown(text: string): string {
-  return text.replace(/([_*`\[])/g, "\\$1");
 }

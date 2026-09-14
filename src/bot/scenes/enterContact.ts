@@ -1,5 +1,6 @@
 import { InlineKeyboard, Keyboard } from "grammy";
 import { phoneSchema } from "@/lib/validation/booking.schema";
+import { escapeMarkdown } from "@/lib/format";
 import type { BotContext } from "../session";
 
 /**
@@ -247,12 +248,4 @@ export async function handleBackToName(
 
   await showEnterContact(ctx);
   return true;
-}
-
-/* =========================================================================
- * Утилиты
- * ========================================================================= */
-
-function escapeMarkdown(text: string): string {
-  return text.replace(/([_*`\[])/g, "\\$1");
 }

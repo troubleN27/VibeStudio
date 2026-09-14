@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { COMMITTED_BOOKING_STATUSES } from "@/lib/constants";
+import { ApiError, requireAdmin, withApiHandler } from "@/lib/api";
 
 type RouteContext = {
   params: { id: string };
@@ -15,19 +15,8 @@ type RouteContext = {
  * возвращает тот же ClientItem, что и список, плюс массив bookings[].
  */
 export async function GET(_req: NextRequest, { params }: RouteContext) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "UNAUTHORIZED",
-            message: "Требуется авторизация"
-          }
-        },
-        { status: 401 }
-      );
-    }
+  return withApiHandler(async () => {
+    await requireAdmin();
 
     const client = await prisma.client.findUnique({
       where: { id: params.id },
@@ -54,20 +43,11 @@ export async function GET(_req: NextRequest, { params }: RouteContext) {
     });
 
     if (!client) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "NOT_FOUND",
-            message: "Клиент не найден"
-          }
-        },
-        { status: 404 }
-      );
+      throw new ApiError(404, "NOT_FOUND", "Клиент не найден");
     }
 
-    const countable = client.bookings.filter(
-      (b) => b.status === "CONFIRMED" || b.status === "COMPLETED"
-    );
+    const committed = COMMITTED_BOOKING_STATUSES as readonly string[];
+    const countable = client.bookings.filter((b) => committed.includes(b.status));
 
     const totalSpent = countable.reduce(
       (sum, b) => sum + Number(b.totalPrice),
@@ -101,16 +81,5 @@ export async function GET(_req: NextRequest, { params }: RouteContext) {
         : null,
       bookings
     });
-  } catch (err) {
-    console.error("[GET /api/clients/[id]]", err);
-    return NextResponse.json(
-      {
-        error: {
-          code: "INTERNAL_ERROR",
-          message: "Внутренняя ошибка сервера"
-        }
-      },
-      { status: 500 }
-    );
-  }
+  });
 }

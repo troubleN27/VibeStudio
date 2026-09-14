@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { escapeMarkdown } from "@/lib/format";
 import {
   servicesKeyboard,
   parseServiceCallback,
@@ -141,14 +142,4 @@ export async function handleBackToHalls(
   const { showSelectHall } = await import("./selectHall");
   await showSelectHall(ctx);
   return true;
-}
-
-/**
- * Экранирование спецсимволов Markdown (legacy, parse_mode: "Markdown").
- * В текущем виде достаточно экранировать `_`, `*`, `` ` `` и `[`.
- * Заменяем на безопасный символ — название зала в БД обычно без этих символов,
- * но администратор может ввести что угодно.
- */
-function escapeMarkdown(text: string): string {
-  return text.replace(/([_*`\[])/g, "\\$1");
 }

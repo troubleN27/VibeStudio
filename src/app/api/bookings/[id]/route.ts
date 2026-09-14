@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { updateBookingStatusSchema } from "@/lib/validation/booking.schema";
+import { updateBookingStatus } from "@/lib/booking-service";
 import {
-  updateBookingStatus,
-  NotFoundError
-} from "@/lib/booking-service";
+  ApiError,
+  parseJson,
+  requireAdmin,
+  validate,
+  withApiHandler
+} from "@/lib/api";
 
 type RouteContext = {
   params: { id: string };
@@ -17,19 +19,8 @@ type RouteContext = {
  * Только админ: получение одной брони с полными данными.
  * ========================================================================= */
 export async function GET(_req: NextRequest, { params }: RouteContext) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "UNAUTHORIZED",
-            message: "Требуется авторизация"
-          }
-        },
-        { status: 401 }
-      );
-    }
+  return withApiHandler(async () => {
+    await requireAdmin();
 
     const booking = await prisma.booking.findUnique({
       where: { id: params.id },
@@ -43,15 +34,7 @@ export async function GET(_req: NextRequest, { params }: RouteContext) {
     });
 
     if (!booking) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "NOT_FOUND",
-            message: "Бронирование не найдено"
-          }
-        },
-        { status: 404 }
-      );
+      throw new ApiError(404, "NOT_FOUND", "Бронирование не найдено");
     }
 
     return NextResponse.json({
@@ -73,18 +56,7 @@ export async function GET(_req: NextRequest, { params }: RouteContext) {
       createdAt: booking.createdAt.toISOString(),
       updatedAt: booking.updatedAt.toISOString()
     });
-  } catch (err) {
-    console.error("[GET /api/bookings/[id]]", err);
-    return NextResponse.json(
-      {
-        error: {
-          code: "INTERNAL_ERROR",
-          message: "Внутренняя ошибка сервера"
-        }
-      },
-      { status: 500 }
-    );
-  }
+  });
 }
 
 /* =========================================================================
@@ -93,77 +65,16 @@ export async function GET(_req: NextRequest, { params }: RouteContext) {
  * Body: { "status": "CANCELLED_BY_ADMIN" | ... }
  * ========================================================================= */
 export async function PATCH(req: NextRequest, { params }: RouteContext) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "UNAUTHORIZED",
-            message: "Требуется авторизация"
-          }
-        },
-        { status: 401 }
-      );
-    }
+  return withApiHandler(async () => {
+    await requireAdmin();
 
-    const body = await req.json().catch(() => null);
-    if (!body) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Некорректное тело запроса"
-          }
-        },
-        { status: 400 }
-      );
-    }
+    const body = await parseJson(req);
+    const data = validate(updateBookingStatusSchema, body, "Некорректный статус");
 
-    const parsed = updateBookingStatusSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Некорректный статус",
-            details: parsed.error.flatten()
-          }
-        },
-        { status: 400 }
-      );
-    }
-
-    const updated = await updateBookingStatus(
-      params.id,
-      parsed.data.status
-    );
+    const updated = await updateBookingStatus(params.id, data.status);
 
     return NextResponse.json(updated);
-  } catch (err) {
-    if (err instanceof NotFoundError) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "NOT_FOUND",
-            message: err.message
-          }
-        },
-        { status: 404 }
-      );
-    }
-
-    console.error("[PATCH /api/bookings/[id]]", err);
-    return NextResponse.json(
-      {
-        error: {
-          code: "INTERNAL_ERROR",
-          message: "Внутренняя ошибка сервера"
-        }
-      },
-      { status: 500 }
-    );
-  }
+  });
 }
 
 /* =========================================================================
@@ -172,48 +83,11 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
  * Физического удаления нет — история сохраняется.
  * ========================================================================= */
 export async function DELETE(_req: NextRequest, { params }: RouteContext) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "UNAUTHORIZED",
-            message: "Требуется авторизация"
-          }
-        },
-        { status: 401 }
-      );
-    }
+  return withApiHandler(async () => {
+    await requireAdmin();
 
-    const updated = await updateBookingStatus(
-      params.id,
-      "CANCELLED_BY_ADMIN"
-    );
+    const updated = await updateBookingStatus(params.id, "CANCELLED_BY_ADMIN");
 
     return NextResponse.json(updated);
-  } catch (err) {
-    if (err instanceof NotFoundError) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "NOT_FOUND",
-            message: err.message
-          }
-        },
-        { status: 404 }
-      );
-    }
-
-    console.error("[DELETE /api/bookings/[id]]", err);
-    return NextResponse.json(
-      {
-        error: {
-          code: "INTERNAL_ERROR",
-          message: "Внутренняя ошибка сервера"
-        }
-      },
-      { status: 500 }
-    );
-  }
+  });
 }

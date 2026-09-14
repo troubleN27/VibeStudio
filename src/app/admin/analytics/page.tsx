@@ -8,6 +8,13 @@ import {
   IconTrending,
   IconWallet
 } from "@/components/ui/icons";
+import { PageHeader } from "@/components/admin/PageHeader";
+import { StatCard } from "@/components/admin/StatCard";
+import { EmptyState } from "@/components/admin/EmptyState";
+import { BOOKING_STATUS_LABELS } from "@/lib/constants";
+import { currentMonthIsoLocal } from "@/lib/dates";
+import { formatPrice } from "@/lib/format";
+import { getErrorMessage, requestJson } from "@/lib/client-fetch";
 
 type HallItem = {
   id: string;
@@ -24,69 +31,41 @@ type AnalyticsResponse = {
   statusBreakdown?: Record<string, number>;
 };
 
-function currentMonthIso(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  return `${y}-${m}`;
-}
-
-function formatPrice(n: number): string {
-  return new Intl.NumberFormat("ru-RU", {
-    style: "decimal",
-    maximumFractionDigits: 0
-  }).format(n);
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  PENDING: "Ожидает",
-  CONFIRMED: "Подтверждена",
-  COMPLETED: "Завершена",
-  CANCELLED_BY_CLIENT: "Отменена клиентом",
-  CANCELLED_BY_ADMIN: "Отменена админом",
-  NO_SHOW: "Не пришёл"
-};
-
 export default function AdminAnalyticsPage() {
   const [halls, setHalls] = useState<HallItem[]>([]);
   const [selectedHallId, setSelectedHallId] = useState<string>("");
-  const [period, setPeriod] = useState<string>(currentMonthIso());
+  const [period, setPeriod] = useState<string>(() => currentMonthIsoLocal());
 
   const [data, setData] = useState<AnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/halls?includeInactive=true")
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((list: HallItem[]) => {
-        if (cancelled) return;
-        setHalls(list);
-        if (list.length > 0) setSelectedHallId(list[0].id);
-      })
-      .catch(() => {
-        if (!cancelled) setError("Не удалось загрузить список залов");
-      });
-    return () => {
-      cancelled = true;
-    };
+  const loadHalls = useCallback(async () => {
+    const list = await requestJson<HallItem[]>("/api/halls?includeInactive=true");
+    setHalls(list);
+    if (list.length > 0) {
+      setSelectedHallId((prev) => prev || list[0].id);
+    }
   }, []);
+
+  useEffect(() => {
+    loadHalls().catch(() => {
+      setError("Не удалось загрузить список залов");
+    });
+  }, [loadHalls]);
 
   const loadAnalytics = useCallback(async () => {
     if (!selectedHallId || !period) return;
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({
-        hallId: selectedHallId,
-        period
-      });
-      const res = await fetch(`/api/admin/analytics?${params.toString()}`);
-      if (!res.ok) throw new Error("failed");
-      const body: AnalyticsResponse = await res.json();
+      const params = new URLSearchParams({ hallId: selectedHallId, period });
+      const body = await requestJson<AnalyticsResponse>(
+        `/api/admin/analytics?${params.toString()}`
+      );
       setData(body);
-    } catch {
+    } catch (err) {
+      console.error(err);
       setError("Не удалось загрузить аналитику");
       setData(null);
     } finally {
@@ -117,14 +96,10 @@ export default function AdminAnalyticsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-white">
-          Аналитика
-        </h1>
-        <p className="mt-1 text-sm text-stone-500">
-          Загруженность зала, выручка и структура бронирований за период.
-        </p>
-      </div>
+      <PageHeader
+        title="Аналитика"
+        subtitle="Загруженность зала, выручка и структура бронирований за период."
+      />
 
       {/* Управление */}
       <div className="card grid gap-4 p-5 sm:grid-cols-[1fr_1fr_auto]">
@@ -183,28 +158,26 @@ export default function AdminAnalyticsPage() {
           ))}
         </div>
       ) : !data ? (
-        <div className="empty">
-          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-500/15 text-brand-400">
-            <IconChart width={26} height={26} />
-          </span>
-          <p className="mt-4 text-sm font-medium text-stone-200">
-            {halls.length === 0
+        <EmptyState
+          icon={<IconChart width={26} height={26} />}
+          title={
+            halls.length === 0
               ? "Создайте хотя бы один зал в разделе «Залы»"
-              : "Выберите зал и период, затем нажмите «Обновить»"}
-          </p>
-        </div>
+              : "Выберите зал и период, затем нажмите «Обновить»"
+          }
+        />
       ) : (
         <>
           {/* Верхние метрики */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <MetricCard
+            <StatCard
               label="Всего слотов"
               value={String(data.totalSlots)}
               hint="доступно в периоде"
               icon={<IconCalendar width={18} height={18} />}
               accent="bg-ink-800 text-stone-300"
             />
-            <MetricCard
+            <StatCard
               label="Забронировано"
               value={String(data.bookedSlots)}
               hint="подтв. и завершённые"
@@ -212,7 +185,7 @@ export default function AdminAnalyticsPage() {
               accent="bg-brand-500/15 text-brand-300"
             />
             {data.revenue !== undefined && (
-              <MetricCard
+              <StatCard
                 label="Выручка за период"
                 value={`${formatPrice(data.revenue)} сум`}
                 hint="подтв. и завершённые"
@@ -263,7 +236,7 @@ export default function AdminAnalyticsPage() {
                   {statusEntries.map(({ status, count, pct }) => (
                     <li key={status} className="flex items-center gap-3 text-sm">
                       <span className="w-36 flex-shrink-0 truncate text-stone-400">
-                        {STATUS_LABELS[status] ?? status}
+                        {BOOKING_STATUS_LABELS[status as keyof typeof BOOKING_STATUS_LABELS] ?? status}
                       </span>
                       <div className="h-2 flex-1 overflow-hidden rounded-full bg-ink-800">
                         <div
@@ -306,35 +279,6 @@ function Donut({
           {clamped.toFixed(0)}%
         </span>
         <span className="text-[10px] text-stone-400">загрузка</span>
-      </div>
-    </div>
-  );
-}
-
-function MetricCard({
-  label,
-  value,
-  hint,
-  icon,
-  accent
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-  icon: React.ReactNode;
-  accent: string;
-}) {
-  return (
-    <div className="card flex items-start gap-4 p-5">
-      <span className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl ${accent}`}>
-        {icon}
-      </span>
-      <div className="min-w-0">
-        <div className="text-[13px] text-stone-500">{label}</div>
-        <div className="truncate text-xl font-semibold tracking-tight text-white">
-          {value}
-        </div>
-        {hint && <div className="mt-0.5 text-xs text-stone-400">{hint}</div>}
       </div>
     </div>
   );

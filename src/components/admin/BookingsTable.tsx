@@ -6,16 +6,15 @@ import {
   IconChevronDown,
   IconSparkle
 } from "@/components/ui/icons";
-
-export type BookingStatus =
-  | "PENDING"
-  | "CONFIRMED"
-  | "COMPLETED"
-  | "CANCELLED_BY_CLIENT"
-  | "CANCELLED_BY_ADMIN"
-  | "NO_SHOW";
-
-export type BookingSource = "WEBSITE" | "TELEGRAM";
+import {
+  BOOKING_STATUS_LABELS,
+  BOOKING_STATUS_STYLES,
+  SOURCE_LABELS,
+  SOURCE_STYLES,
+  type BookingSource,
+  type BookingStatus
+} from "@/lib/constants";
+import { formatPrice } from "@/lib/format";
 
 export type BookingRow = {
   id: string;
@@ -38,43 +37,8 @@ type BookingsTableProps = {
   updatingId?: string | null;
 };
 
-const STATUS_LABELS: Record<BookingStatus, string> = {
-  PENDING: "Ожидает",
-  CONFIRMED: "Подтверждена",
-  COMPLETED: "Завершена",
-  CANCELLED_BY_CLIENT: "Отменена клиентом",
-  CANCELLED_BY_ADMIN: "Отменена админом",
-  NO_SHOW: "Не пришёл"
-};
-
-const STATUS_STYLES: Record<BookingStatus, string> = {
-  PENDING: "bg-amber-500/15 text-amber-300 ring-amber-500/30",
-  CONFIRMED: "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30",
-  COMPLETED: "bg-sky-500/15 text-sky-300 ring-sky-500/30",
-  CANCELLED_BY_CLIENT: "bg-ink-800 text-stone-400 ring-ink-600",
-  CANCELLED_BY_ADMIN: "bg-rose-500/15 text-rose-300 ring-rose-500/30",
-  NO_SHOW: "bg-ink-800 text-stone-500 ring-ink-600"
-};
-
-const SOURCE_STYLES: Record<BookingSource, string> = {
-  WEBSITE: "bg-brand-500/15 text-brand-300 ring-brand-500/30",
-  TELEGRAM: "bg-sky-500/15 text-sky-300 ring-sky-500/30"
-};
-
-const SOURCE_LABELS: Record<BookingSource, string> = {
-  WEBSITE: "Сайт",
-  TELEGRAM: "Telegram"
-};
-
 function initialsOf(name: string) {
   return name.trim().slice(0, 2).toUpperCase() || "—";
-}
-
-function formatPrice(price: number): string {
-  return new Intl.NumberFormat("ru-RU", {
-    style: "decimal",
-    maximumFractionDigits: 0
-  }).format(price);
 }
 
 function formatDate(iso: string): string {
@@ -123,7 +87,7 @@ export default function BookingsTable({
         <p className="mt-4 text-sm font-medium text-stone-200">
           Бронирований не найдено
         </p>
-        <p className="mt-1 text-xs text-stone-500">
+        <p className="mt-1 text-xs text-stone-400">
           Попробуйте изменить фильтры или период
         </p>
       </div>
@@ -243,9 +207,9 @@ export default function BookingsTable({
 
                   <td>
                     <span
-                      className={`pill ring-1 ${STATUS_STYLES[b.status]}`}
+                      className={`pill ring-1 ${BOOKING_STATUS_STYLES[b.status]}`}
                     >
-                      {STATUS_LABELS[b.status]}
+                      {BOOKING_STATUS_LABELS[b.status]}
                     </span>
                   </td>
 
@@ -259,13 +223,13 @@ export default function BookingsTable({
                         }
                         className="h-9 cursor-pointer appearance-none rounded-lg border border-ink-700 bg-ink-800 pl-3 pr-9 text-xs font-medium text-stone-200 shadow-sm transition hover:border-ink-600 focus:border-brand-500 focus:outline-none disabled:opacity-50"
                       >
-                        {(Object.keys(STATUS_LABELS) as BookingStatus[]).map(
-                          (status) => (
-                            <option key={status} value={status}>
-                              {STATUS_LABELS[status]}
-                            </option>
-                          )
-                        )}
+                        {(Object.keys(
+                          BOOKING_STATUS_LABELS
+                        ) as BookingStatus[]).map((status) => (
+                          <option key={status} value={status}>
+                            {BOOKING_STATUS_LABELS[status]}
+                          </option>
+                        ))}
                       </select>
                       <IconChevronDown
                         width={14}

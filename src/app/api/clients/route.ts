@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { COMMITTED_BOOKING_STATUSES } from "@/lib/constants";
+import { requireAdmin, withApiHandler } from "@/lib/api";
 
 /**
  * GET /api/clients
@@ -17,19 +17,8 @@ import { prisma } from "@/lib/prisma";
  * по фактически оплаченным/ожидаемым броням. Отменённые не учитываются.
  */
 export async function GET() {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "UNAUTHORIZED",
-            message: "Требуется авторизация"
-          }
-        },
-        { status: 401 }
-      );
-    }
+  return withApiHandler(async () => {
+    await requireAdmin();
 
     const clients = await prisma.client.findMany({
       orderBy: { createdAt: "desc" },
@@ -50,8 +39,9 @@ export async function GET() {
     });
 
     const result = clients.map((c) => {
-      const countable = c.bookings.filter(
-        (b) => b.status === "CONFIRMED" || b.status === "COMPLETED"
+      const committed = (COMMITTED_BOOKING_STATUSES as readonly string[]);
+      const countable = c.bookings.filter((b) =>
+        committed.includes(b.status)
       );
 
       const totalSpent = countable.reduce(
@@ -61,7 +51,10 @@ export async function GET() {
 
       const lastBookingDate =
         c.bookings.length > 0
-          ? c.bookings.reduce((max, b) => (b.date > max ? b.date : max), c.bookings[0].date)
+          ? c.bookings.reduce(
+              (max, b) => (b.date > max ? b.date : max),
+              c.bookings[0].date
+            )
           : null;
 
       return {
@@ -79,16 +72,5 @@ export async function GET() {
     });
 
     return NextResponse.json(result);
-  } catch (err) {
-    console.error("[GET /api/clients]", err);
-    return NextResponse.json(
-      {
-        error: {
-          code: "INTERNAL_ERROR",
-          message: "Внутренняя ошибка сервера"
-        }
-      },
-      { status: 500 }
-    );
-  }
+  });
 }
