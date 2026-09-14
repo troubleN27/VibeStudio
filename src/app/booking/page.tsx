@@ -16,6 +16,7 @@ import Calendar from "@/components/booking/Calendar";
 import TimeSlotGrid from "@/components/booking/TimeSlotGrid";
 import BookingSummary from "@/components/booking/BookingSummary";
 import { addDaysIsoLocal, formatDateRu, todayIsoLocal } from "@/lib/dates";
+import { formatPrice } from "@/lib/format";
 import {
   ClientRequestError,
   getErrorMessage,
@@ -65,6 +66,8 @@ export default function BookingPage() {
     [selectedHall, selectedService, selectedDate, selectedTime]
   );
   const maxStepReached = selectedTime ? 4 : selectedDate ? 3 : selectedService ? 2 : selectedHall ? 1 : 0;
+  // Все шаги и контакты доступны — показываем мобильную нижнюю панель.
+  const bookingReady = !!(selectedHall && selectedService && selectedDate && selectedTime);
 
   // Загрузка залов
   useEffect(() => {
@@ -199,9 +202,9 @@ export default function BookingPage() {
 
   if (success) {
     return (
-      <main className="min-h-screen bg-ink-950">
+      <main className="min-h-dvh bg-ink-950">
         <header className="sticky top-0 z-40 border-b border-ink-800 bg-ink-950/80 backdrop-blur-xl">
-          <div className="container-page flex h-16 items-center justify-between">
+          <div className="container-page flex h-14 items-center justify-between sm:h-16">
             <Link href="/">
               <Logo light />
             </Link>
@@ -252,9 +255,11 @@ export default function BookingPage() {
                 >
                   Забронировать ещё
                 </button>
-                <Link href="/" className="btn-secondary flex-1">
-                  На главную
-                </Link>
+                {!tg.isTelegram && (
+                  <Link href="/" className="btn-secondary flex-1">
+                    На главную
+                  </Link>
+                )}
               </div>
             </div>
           </div>
@@ -264,24 +269,26 @@ export default function BookingPage() {
   }
 
   return (
-    <main className="min-h-screen bg-ink-950">
+    <main className="min-h-dvh bg-ink-950">
       {/* Header */}
       <header className="sticky top-0 z-40 border-b border-ink-800 bg-ink-950/80 backdrop-blur-xl">
-        <div className="container-page flex h-16 items-center justify-between gap-4">
+        <div className="container-page flex h-14 items-center justify-between gap-4 sm:h-16">
           <Link href="/">
             <Logo light />
           </Link>
-          <Link
-            href="/"
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-stone-400 transition-colors hover:text-brand-400"
-          >
-            <IconArrowLeft width={16} height={16} />
-            На главную
-          </Link>
+          {!tg.isTelegram && (
+            <Link
+              href="/"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-stone-400 transition-colors hover:text-brand-400"
+            >
+              <IconArrowLeft width={16} height={16} />
+              На главную
+            </Link>
+          )}
         </div>
       </header>
 
-      <div className="container-page py-8 lg:py-12">
+      <div className={`container-page py-8 lg:py-12 ${bookingReady ? "pb-36 lg:pb-12" : ""}`}>
         {/* Заголовок */}
         <div className="max-w-2xl">
           <div className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-widest text-brand-300">
@@ -339,7 +346,7 @@ export default function BookingPage() {
           })}
         </div>
 
-        <div className="mt-8 grid gap-10 lg:grid-cols-[1fr_380px]">
+        <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_380px] lg:gap-10">
           <div className="min-w-0 space-y-10">
             {/* Шаг 1: Зал */}
             <Section number={1} title="Выберите зал" active={currentStep >= 0}>
@@ -429,7 +436,7 @@ export default function BookingPage() {
                   />
                 </div>
                 {selectedTime && (
-                  <div className="mt-5 flex justify-end">
+                  <div className="mt-5 hidden justify-end lg:flex">
                     <button
                       type="button"
                       onClick={() =>
@@ -463,6 +470,39 @@ export default function BookingPage() {
           </aside>
         </div>
       </div>
+
+      {/* Мобильная нижняя панель: краткая сводка + кнопка к контактам */}
+      {bookingReady && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-ink-800 bg-ink-950/85 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden">
+          <div className="container-page flex items-center justify-between gap-3 px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs text-stone-400">
+                {selectedHall?.name} · {selectedService?.name}
+              </p>
+              <p className="mt-0.5 truncate text-sm font-semibold text-white">
+                {selectedService
+                  ? `${formatPrice(selectedService.price)} сум`
+                  : ""}
+                {selectedDate && selectedTime
+                  ? ` · ${selectedDate.slice(8, 10)}.${selectedDate.slice(5, 7)} · ${selectedTime}`
+                  : ""}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                document
+                  .querySelector<HTMLElement>("#summary")
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" })
+              }
+              className="btn-primary shrink-0"
+            >
+              К контактам
+              <IconArrowRight width={16} height={16} />
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
