@@ -108,19 +108,6 @@ export default async function HomePage() {
         </div>
 
         <div className="container-page relative pb-20 pt-16 sm:pt-24 lg:pb-28">
-          <div className="mb-10 animate-fade-in-up">
-            <Link
-              href="/"
-              className="group inline-flex items-center gap-3 rounded-full border border-white/10 bg-white/5 py-1.5 pl-2 pr-5 backdrop-blur transition-colors hover:border-brand-500/40 hover:bg-white/10"
-            >
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 shadow-sm transition-transform group-hover:scale-105">
-                <IconCamera width={13} height={13} className="text-white" strokeWidth={2} />
-              </span>
-              <span className="text-sm font-semibold tracking-tight text-white">
-                Vibe Studio
-              </span>
-            </Link>
-          </div>
           <div className="grid items-center gap-14 lg:grid-cols-[1.05fr_0.95fr]">
             <div>
               <div
