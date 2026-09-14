@@ -21,6 +21,7 @@ import {
   getErrorMessage,
   requestJson
 } from "@/lib/client-fetch";
+import { useTelegramMiniApp } from "@/lib/telegram-webapp-client";
 
 type AvailabilityResponse = {
   date: string;
@@ -38,6 +39,8 @@ type CreatedBooking = {
 };
 
 export default function BookingPage() {
+  const tg = useTelegramMiniApp();
+
   const [halls, setHalls] = useState<Hall[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [slots, setSlots] = useState<string[]>([]);
@@ -163,7 +166,10 @@ export default function BookingPage() {
           startTime: selectedTime,
           clientName: data.clientName,
           clientPhone: data.clientPhone,
-          source: "WEBSITE"
+          source: tg.isTelegram ? "TELEGRAM" : "WEBSITE",
+          ...(tg.isTelegram && tg.initData
+            ? { telegramInitData: tg.initData }
+            : {})
         })
       });
 
@@ -452,6 +458,7 @@ export default function BookingPage() {
               submitting={submitting}
               error={error}
               onSubmit={handleSubmit}
+              initialName={tg.isTelegram ? tg.user?.firstName ?? null : null}
             />
           </aside>
         </div>

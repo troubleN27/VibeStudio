@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Hall } from "./HallCard";
 import type { Service } from "./ServiceCard";
 import { IconShield } from "@/components/ui/icons";
@@ -15,6 +15,8 @@ type BookingSummaryProps = {
   submitting: boolean;
   error: string | null;
   onSubmit: (data: { clientName: string; clientPhone: string }) => void;
+  /** Имя из Telegram Mini App — подставляется, пока поле не заполнено. */
+  initialName?: string | null;
 };
 
 const PHONE_REGEX = /^\+?\d{9,15}$/;
@@ -31,11 +33,20 @@ export default function BookingSummary({
   startTime,
   submitting,
   error,
-  onSubmit
+  onSubmit,
+  initialName = null
 }: BookingSummaryProps) {
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
   const [touched, setTouched] = useState(false);
+
+  // Подставляем имя из Telegram, пока пользователь не начал вводить своё.
+  useEffect(() => {
+    if (initialName && clientName.trim().length === 0) {
+      setClientName(initialName);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialName]);
 
   const endTime =
     startTime && service ? addMinutesToTime(startTime, service.durationMin) : null;

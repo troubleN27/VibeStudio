@@ -80,7 +80,14 @@ export const createBookingSchema = z.object({
    * клиента с его telegramId и дать возможность смотреть свои брони
    * командой /my_bookings.
    */
-  telegramId: z.string().min(1).max(100).optional()
+  telegramId: z.string().min(1).max(100).optional(),
+  /**
+   * initData из Telegram Mini App. Если передан, сервер проверяет подпись
+   * (см. src/lib/telegram-webapp.ts): при валидной подписи источник
+   * принудительно становится TELEGRAM, а telegramId берётся из проверенных
+   * данных (клиентский telegramId игнорируется).
+   */
+  telegramInitData: z.string().min(1).max(4096).optional()
 });
 
 export type CreateBookingInput = z.infer<typeof createBookingSchema>;

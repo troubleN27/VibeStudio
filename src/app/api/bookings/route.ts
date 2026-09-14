@@ -11,8 +11,10 @@ import {
   parseJson,
   requireAdmin,
   validate,
-  withApiHandler
+  withApiHandler,
+  ApiError
 } from "@/lib/api";
+import { validateTelegramInitData } from "@/lib/telegram-webapp";
 
 /* =========================================================================
  * GET /api/bookings
@@ -87,6 +89,21 @@ export async function POST(req: NextRequest) {
     const body = await parseJson(req);
     const data = validate(createBookingSchema, body);
 
+    // Requests from the Telegram Mini App carry initData: we verify the
+    // signature, then trust source/telegramId from validated data only.
+    if (data.telegramInitData) {
+      const tgUser = validateTelegramInitData(data.telegramInitData);
+      if (!tgUser) {
+        throw new ApiError(
+          401,
+          "TELEGRAM_AUTH_FAILED",
+          "Не удалось проверить данные Telegram: попробуйте обновить приложение"
+        );
+      }
+      data.source = "TELEGRAM";
+      data.telegramId = tgUser.id;
+    }
+
     const booking = await createBooking(data);
 
     // Уведомляем админа. Не блокируем ответ клиенту: если Telegram
@@ -102,7 +119,7 @@ export async function POST(req: NextRequest) {
         clientName: booking.client.name,
         clientPhone: booking.client.phone,
         totalPrice: booking.totalPrice,
-        source: data.source,
+        source: booking.source as "WEBSITE" | "TELEGRAM",
         bookingId: booking.id
       })
     );

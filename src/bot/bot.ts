@@ -1,7 +1,8 @@
-import { Bot, session } from "grammy";
+import { Bot, InlineKeyboard, session } from "grammy";
 import { prisma } from "@/lib/prisma";
 import { formatDateRu, startOfTodayUtc } from "@/lib/dates";
 import { escapeMarkdown, formatPrice } from "@/lib/format";
+import { MINI_APP_URL } from "./constants";
 import {
   initialSession,
   resetSessionData,
@@ -87,6 +88,21 @@ bot.catch((err) => {
 
 bot.command("start", async (ctx) => {
   await showSelectHall(ctx);
+});
+
+bot.command("app", async (ctx) => {
+  await ctx.reply(
+    "📱 *Онлайн-бронирование*\n\n" +
+      "Откройте залы и выберите удобное время прямо в приложении — " +
+      "без пошагового диалога.",
+    {
+      parse_mode: "Markdown",
+      reply_markup: new InlineKeyboard().webApp(
+        "Открыть онлайн-бронирование",
+        MINI_APP_URL
+      )
+    }
+  );
 });
 
 bot.command("cancel", async (ctx) => {
@@ -265,6 +281,7 @@ export async function setupBotCommands(): Promise<void> {
   try {
     await bot.api.setMyCommands([
       { command: "start", description: "Забронировать студию" },
+      { command: "app", description: "Онлайн-бронирование" },
       { command: "my_bookings", description: "Мои брони" },
       { command: "cancel", description: "Отменить текущий диалог" }
     ]);
