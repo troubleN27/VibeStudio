@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { formatDateRu, startOfTodayUtc } from "@/lib/dates";
 import { escapeMarkdown, formatPrice } from "@/lib/format";
 import { MINI_APP_URL } from "./constants";
+import { createBotSessionStorage } from "./sessionStorage";
 import {
   initialSession,
   resetSessionData,
@@ -63,12 +64,20 @@ if (!BOT_TOKEN) {
 
 export const bot = new Bot<BotContext>(BOT_TOKEN);
 
-// In-memory сессии по chatId (для MVP — см. SPEC раздел 7)
+// Persist-хранилище сессий: в production (когда задан TURSO_DATABASE_URL)
+// используем Turso, в локальном dev без Turso — in-memory.
+const botSessionStorage =
+  process.env.TURSO_DATABASE_URL && process.env.TURSO_AUTH_TOKEN
+    ? createBotSessionStorage()
+    : undefined;
+
+// Сессии по chatId (для MVP — см. SPEC раздел 7)
 bot.use(
   session<BotSessionData, BotContext>({
     initial: initialSession,
     getSessionKey: (ctx) =>
-      ctx.chat?.id !== undefined ? String(ctx.chat.id) : undefined
+      ctx.chat?.id !== undefined ? String(ctx.chat.id) : undefined,
+    ...(botSessionStorage ? { storage: botSessionStorage } : {})
   })
 );
 
