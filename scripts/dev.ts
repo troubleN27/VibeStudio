@@ -16,7 +16,7 @@
  */
 
 import "dotenv/config";
-import bot, { setupBotCommands } from "../src/bot/bot";
+import bot, { setupBotMenu } from "../src/bot/bot";
 
 /* =========================================================================
  * Разбор аргументов командной строки
@@ -93,8 +93,8 @@ async function runPolling(): Promise<void> {
     log(`⚠️  Не удалось проверить webhook: ${(err as Error).message}`);
   }
 
-  // Настраиваем меню команд (одноразово при старте)
-  await setupBotCommands();
+  // Настраиваем меню бота (одноразово при старте)
+  await setupBotMenu();
 
   // Информация о боте
   const me = await bot.api.getMe();

@@ -274,19 +274,34 @@ bot.on("message", async (ctx) => {
 });
 
 /* =========================================================================
- * Настройка меню команд (одноразово при импорте модуля)
+ * Настройка меню бота
+ *
+ * Убирает список команд («/»-меню) и заменяет кнопку-меню единственной
+ * кнопкой «Забронировать», которая сразу открывает Mini App.
  * ========================================================================= */
 
-export async function setupBotCommands(): Promise<void> {
+export async function setupBotMenu(): Promise<void> {
   try {
-    await bot.api.setMyCommands([
-      { command: "start", description: "Забронировать студию" },
-      { command: "app", description: "Онлайн-бронирование" },
-      { command: "my_bookings", description: "Мои брони" },
-      { command: "cancel", description: "Отменить текущий диалог" }
-    ]);
+    await bot.api.setMyCommands([]);
   } catch (err) {
     console.warn("[bot] setMyCommands failed", err);
+  }
+
+  try {
+    // ВАЖНО: параметр называется menu_button (старое поле из MTProto).
+    // «button» из спецификации Bot API сервер принимает, но молча игнорирует,
+    // поэтому дефолтная кнопка не менялась. Обходим типы grammY через raw.
+    await bot.api.raw.setChatMenuButton({
+      menu_button: {
+        type: "web_app",
+        text: "Забронировать",
+        web_app: { url: MINI_APP_URL }
+      }
+    } as unknown as Parameters<
+      typeof bot.api.raw.setChatMenuButton
+    >[0]);
+  } catch (err) {
+    console.warn("[bot] setChatMenuButton failed", err);
   }
 }
 
